@@ -9,7 +9,8 @@
 ├─ dockerfiles/db.dockerfile   # PostgreSQL + 확장
 ├─ contracts/schema.sql        # DB 스키마 (직접 적용)
 └─ apps/
-   ├─ db/.env.example          # db 컨테이너용 POSTGRES_*
+   ├─ db/.env.example          # db 컨테이너와 DB 스크립트용 POSTGRES_*
+   ├─ db/scripts/              # DB 기준 데이터 적재 스크립트 (행정동 코드)
    ├─ be/.env.example          # Laravel (조회·검색)
    └─ rag/.env.example         # Python 워커 (수집·청킹·임베딩)
 ```
@@ -102,16 +103,17 @@ BM25 결과와 벡터 결과를 각각 `p_candidates`(기본 100)개씩 뽑은 �
 1. [주민등록 행정동 코드](https://jumin.mois.go.kr/)에서 행정기관 코드 파일을 받아, 압축 안의 `KIKcd_H.YYYYMMDD.xlsx`를 꺼냅니다.
    - 컬럼: `행정동코드, 시도명, 시군구명, 읍면동명, 생성일자, 말소일자`
    - 엑셀에서 CSV(UTF-8 또는 CP949)로 저장한 파일도 그대로 넣을 수 있습니다.
-2. `apps/rag/.env`의 `DB_*` 값으로 접속해서 적재합니다.
+2. `apps/db/.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`로 `127.0.0.1:5432`에 접속해서 적재합니다. DB를 띄운 호스트에서 실행하면 됩니다.
 
 ```bash
-uv run apps/rag/scripts/load_regions.py KIKcd_H.20260101.xlsx
+uv run apps/db/scripts/load_regions.py KIKcd_H.20260101.xlsx
 ```
 
 `uv`가 없다면 `pip install "psycopg[binary]" openpyxl python-dotenv`로 필요한 패키지를 설치한 뒤 `python`으로 실행하면 됩니다. Python 3.11 이상이 필요합니다.
 
 - `--dry-run`: 적재한 뒤 롤백해서 건수만 확인합니다.
 - `--env`: 다른 `.env` 파일을 지정합니다.
+- `--host`, `--port`: 접속할 DB 주소를 바꿉니다.
 
 **동작 방식**
 - 코드를 기준으로 upsert합니다. 새 파일을 받을 때마다 다시 실행하면 됩니다. 기존 행은 지우지 않고, 폐지된 코드는 말소일자가 `valid_to`에 들어갑니다.

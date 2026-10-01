@@ -113,5 +113,5 @@
 ## 10. 남은 확인 사항
 - 2026-10-01 로컬 검증 완료: 이미지 빌드, 스키마 적용, 확장 버전(vector 0.8.6, pg_search 0.25.11), 시간대 Asia/Seoul, Lindera 한국어 토큰화, `search_chunks()` 호출(파라미터로 넘긴 `|||`, 필터, 빈 질의, 통신사 제외), 초 단위 반올림, `ON DELETE CASCADE`. 데이터 양이 적어서 인덱스 사용 여부(실행 계획)는 확인하지 않았다.
 - 지역·섹션 배열 필터는 pg_search 인덱스 안에서 처리되지 않는다. 그래서 필터를 건 BM25 검색은 상위 N개 최적화를 못 타서 느려질 수 있다 (PoC 규모에서는 허용).
-- 행정동 마스터 실제 데이터 적재: 적재 스크립트(`apps/rag/scripts/load_regions.py`, KIKcd_H xlsx/CSV 입력)는 만들었고, 실제 데이터는 아직 넣지 않았다. `article_regions`의 코드 FK 때문에, 코드까지 저장하려면 수집 전에 먼저 적재해야 한다. 일반구(예: 수원시 영통구)의 `parent_code`는 시(수원시)로 연결하므로, 청크 `region_codes`를 펼칠 때 시 단위도 포함된다.
+- 행정동 마스터 실제 데이터 적재: 적재 스크립트(`apps/db/scripts/load_regions.py`, KIKcd_H xlsx/CSV 입력, `apps/db/.env`의 `POSTGRES_*`로 접속)는 만들었고, 실제 데이터는 아직 넣지 않았다. `article_regions`의 코드 FK 때문에, 코드까지 저장하려면 수집 전에 먼저 적재해야 한다. 일반구(예: 수원시 영통구)의 `parent_code`는 시(수원시)로 연결하므로, 청크 `region_codes`를 펼칠 때 시 단위도 포함된다.
 - 운영 규모를 산정한 뒤 파티셔닝과 HNSW 파라미터를 다시 검토한다.

@@ -14,8 +14,10 @@
   - 전체를 한 트랜잭션으로 처리한다.
 
 사용:
-  uv run apps/rag/scripts/load_regions.py KIKcd_H.20260101.xlsx
-  python apps/rag/scripts/load_regions.py regions.csv --env apps/rag/.env --dry-run
+  uv run apps/db/scripts/load_regions.py KIKcd_H.20260101.xlsx
+  python apps/db/scripts/load_regions.py regions.csv --host 127.0.0.1 --port 5432 --dry-run
+
+접속 정보: apps/db/.env 의 POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
 """
 
 from __future__ import annotations
@@ -104,7 +106,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="행정동 코드(KIKcd_H)를 regions 테이블에 적재")
     parser.add_argument("file", type=Path, help="KIKcd_H.YYYYMMDD.xlsx 또는 CSV")
     parser.add_argument("--env", type=Path, default=Path(__file__).resolve().parents[1] / ".env",
-                        help="DB_* 값을 읽을 .env (기본: apps/rag/.env)")
+                        help="POSTGRES_* 값을 읽을 .env (기본: apps/db/.env)")
+    parser.add_argument("--host", default="127.0.0.1", help="DB 호스트 (기본: 127.0.0.1)")
+    parser.add_argument("--port", default="5432", help="DB 포트 (기본: 5432)")
     parser.add_argument("--dry-run", action="store_true", help="적재 후 롤백")
     args = parser.parse_args()
 
@@ -125,11 +129,11 @@ def main() -> int:
         raise SystemExit("적재할 행이 없습니다.")
 
     conninfo = dict(
-        host=os.environ.get("DB_HOST", "127.0.0.1"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ["DB_DATABASE"],
-        user=os.environ["DB_USERNAME"],
-        password=os.environ["DB_PASSWORD"],
+        host=args.host,
+        port=args.port,
+        dbname=os.environ["POSTGRES_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
     )
 
     with psycopg.connect(**conninfo) as conn, conn.cursor() as cur:
