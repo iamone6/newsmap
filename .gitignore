@@ -1,0 +1,63 @@
+# ---- 환경변수 (각 앱의 .env 는 커밋하지 않고 .env.example 만 커밋) ----
+.env
+.env.*
+!.env.example
+
+# ---- OS / 에디터 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---- 로그 ----
+*.log
+logs/
+
+# ---- DB 덤프 / 행정동 원본 데이터 ----
+*.dump
+*.sql.gz
+*.csv
+
+# ---- Node (apps/fe 등) ----
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.output/
+coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Laravel (apps/be) ----
+apps/be/vendor/
+apps/be/public/hot
+apps/be/public/storage
+apps/be/public/build
+apps/be/storage/*.key
+apps/be/storage/logs/
+apps/be/storage/framework/cache/
+apps/be/storage/framework/sessions/
+apps/be/storage/framework/views/
+apps/be/storage/framework/testing/
+apps/be/bootstrap/cache/*.php
+.phpunit.result.cache
+.phpunit.cache/
+
+# ---- Python (apps/rag) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ---- Hugging Face 토크나이저/모델 캐시 ----
+.cache/
