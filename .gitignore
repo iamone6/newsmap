@@ -20,6 +20,7 @@ logs/
 *.dump
 *.sql.gz
 *.csv
+*.xlsx
 
 # ---- Node (apps/fe 등) ----
 node_modules/

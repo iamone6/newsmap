@@ -64,7 +64,7 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 - 페이지를 파싱한 뒤 `canonical_url`이 이미 있으면 새 기사를 만들지 않습니다. 대신 기존 기사 id로 `seen_rss_links`에만 기록합니다.
 - 기사, 지역, 섹션, 이미지, 청크, `seen_rss_links`는 모든 처리(LLM 판단, 임베딩)가 끝난 뒤 **한 트랜잭션**으로 저장합니다. 중간에 실패하면 아무것도 저장되지 않고 다음 cron에서 다시 시도됩니다.
 - `published_at`은 RSS 발행일, 없으면 RSS 생성일, 그것도 없으면 수집 시각으로 채웁니다. 어떤 값을 썼는지는 `published_at_source`에 기록합니다.
-- `article_chunks`의 `region_codes`(상위 지역까지 펼친 코드), `section_ids`, `published_at`, `is_wire`는 기사 값을 복사해서 채웁니다.
+- `article_chunks`의 `region_codes`(`regions.parent_code`를 따라 상위 지역까지 펼친 코드. 예: 매탄1동 → 영통구 → 수원시 → 경기도), `section_ids`, `published_at`, `is_wire`는 기사 값을 복사해서 채웁니다.
 - 보존 기간(최대 1년)이 지난 기사는 `DELETE FROM articles WHERE created_at < now() - interval '1 year'`로 지웁니다. 하위 테이블은 `ON DELETE CASCADE`로 같이 지워집니다.
 
 ## 청킹과 임베딩
@@ -97,12 +97,28 @@ SELECT * FROM search_chunks(
 
 BM25 결과와 벡터 결과를 각각 `p_candidates`(기본 100)개씩 뽑은 뒤, RRF(`k = p_rrf_k`, 기본 60)로 합칩니다.
 
-## 행정동 마스터 적재 (나중에)
+## 행정동 마스터 적재
 
-행정안전부 행정표준코드관리시스템에서 행정동 코드 파일을 받아, `regions` 컬럼에 맞게 CSV로 가공한 뒤 넣습니다.
+1. [주민등록 행정동 코드](https://jumin.mois.go.kr/)에서 행정기관 코드 파일을 받아, 압축 안의 `KIKcd_H.YYYYMMDD.xlsx`를 꺼냅니다.
+   - 컬럼: `행정동코드, 시도명, 시군구명, 읍면동명, 생성일자, 말소일자`
+   - 엑셀에서 CSV(UTF-8 또는 CP949)로 저장한 파일도 그대로 넣을 수 있습니다.
+2. `apps/rag/.env`의 `DB_*` 값으로 접속해서 적재합니다.
 
 ```bash
-docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy regions (code, level, sido_name, sigungu_name, emd_name, full_name, parent_code, valid_from, valid_to) FROM STDIN WITH (FORMAT csv, HEADER true)"' < regions.csv
+uv run apps/rag/scripts/load_regions.py KIKcd_H.20260101.xlsx
 ```
 
-`parent_code`가 FK이므로 시도, 시군구, 읍면동 순서로 정렬해서 넣어야 합니다. `article_regions`의 코드 컬럼도 `regions`를 FK로 참조하기 때문에, 코드까지 저장하려면 수집을 시작하기 전에 이 적재를 먼저 해야 합니다.
+`uv`가 없다면 `pip install "psycopg[binary]" openpyxl python-dotenv`로 필요한 패키지를 설치한 뒤 `python`으로 실행하면 됩니다. Python 3.11 이상이 필요합니다.
+
+- `--dry-run`: 적재한 뒤 롤백해서 건수만 확인합니다.
+- `--env`: 다른 `.env` 파일을 지정합니다.
+
+**동작 방식**
+- 코드를 기준으로 upsert합니다. 새 파일을 받을 때마다 다시 실행하면 됩니다. 기존 행은 지우지 않고, 폐지된 코드는 말소일자가 `valid_to`에 들어갑니다.
+- `level`은 코드 모양으로 판단합니다. `XX00000000`은 시도, `XXXXX00000`은 시군구, 나머지는 읍면동입니다.
+- `parent_code` 연결 규칙:
+  - 읍면동 → 소속 시군구
+  - 일반구(예: `수원시 영통구`) → 시(`수원시`)
+  - 시군구 → 시도
+
+`article_regions`의 코드 컬럼은 `regions`를 FK로 참조합니다. 그래서 지역 코드까지 저장하려면 수집을 시작하기 전에 이 적재를 먼저 해야 합니다.
