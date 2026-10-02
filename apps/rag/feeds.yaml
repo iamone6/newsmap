@@ -1,0 +1,225 @@
+# RSS 피드 설정. 피드·언론사 목록은 DB가 아니라 이 파일로 관리한다 (CLAUDE.md 참고).
+# DB에는 feed_key, publisher_name 만 저장한다.
+#
+# type: direct              피드 하나 = 언론사 하나 고정. publisher_name 사용.
+# type: google_news_search  검색 기반 피드. 언론사가 기사마다 다르므로 publisher_name 없이,
+#                            수집기가 각 item 의 <source> 태그에서 읽는다.
+#                            <link> 는 구글 내부 리다이렉트 ID라 별도 디코딩이 필요하다.
+#                            exclude_sources 에 걸리는 도메인의 기사는 수집하지 않는다.
+#
+# 조사 근거: prompts/regional-rss-feeds.research.md (조사일 2026-10-02, 서울·부산은 이후 보강)
+
+exclude_sources: # google_news_search 전용. <source url="..."> 의 호스트 기준 매칭
+  # 전국 종합일간지
+  - chosun.com
+  - joongang.co.kr
+  - joins.com
+  - donga.com
+  - hankookilbo.com
+  - khan.co.kr
+  - hani.co.kr
+  - kmib.co.kr
+  - segye.com
+  - munhwa.com
+  # 전국 경제지
+  - mk.co.kr
+  - hankyung.com
+  - sedaily.com
+  - heraldcorp.com
+  - fnnews.com
+  - asiae.co.kr
+  # 전국 방송
+  - kbs.co.kr
+  - imbc.com
+  - sbs.co.kr
+  - ytn.co.kr
+  - jtbc.co.kr
+  - tvchosun.com
+  - mbn.co.kr
+  # 포털 미러 (원 언론사가 아님)
+  - naver.com
+  - daum.net
+  - nate.com
+
+feeds:
+  # ---- 서울 ----
+  - feed_key: onseoul
+    type: direct
+    publisher_name: 서울자치신문
+    rss_url: https://www.onseoul.net/rss/allArticle.xml
+
+  - feed_key: google_news_seoul
+    type: google_news_search
+    rss_url: https://news.google.com/rss/search?q=%EC%84%9C%EC%9A%B8&hl=ko&gl=KR&ceid=KR%3Ako
+
+  # ---- 경기 / 인천 ----
+  - feed_key: joongboo
+    type: direct
+    publisher_name: 중부일보
+    rss_url: https://www.joongboo.com/rss/allArticle.xml
+
+  - feed_key: kihoilbo
+    type: direct
+    publisher_name: 기호일보
+    rss_url: https://www.kihoilbo.co.kr/rss/allArticle.xml
+    note: 조사 시점 기준 최근 업데이트가 약 1년 전으로 표시됨. 최신성 의문, 운영 전 재확인 필요.
+
+  - feed_key: obs
+    type: direct
+    publisher_name: OBS경인TV
+    rss_url: https://www.obsnews.co.kr/rss/allArticle.xml
+
+  - feed_key: incheonilbo
+    type: direct
+    publisher_name: 인천일보
+    rss_url: https://www.incheonilbo.com/rss/allArticle.xml
+
+  - feed_key: incheonnewspaper
+    type: direct
+    publisher_name: 인천신문
+    rss_url: https://www.incheonnewspaper.com/rss/allArticle.xml
+
+  # ---- 강원 ----
+  - feed_key: kado
+    type: direct
+    publisher_name: 강원도민일보
+    rss_url: https://www.kado.net/rss/allArticle.xml
+
+  # ---- 충북 ----
+  - feed_key: jbnews
+    type: direct
+    publisher_name: 중부매일
+    rss_url: https://www.jbnews.com/rss/allArticle.xml
+
+  - feed_key: ccdailynews
+    type: direct
+    publisher_name: 충청일보
+    rss_url: https://www.ccdailynews.com/rss/allArticle.xml
+
+  - feed_key: inews365
+    type: direct
+    publisher_name: 충북일보
+    rss_url: https://www.inews365.com/data/rss/news.xml
+
+  # ---- 충남 / 대전 / 세종 ----
+  - feed_key: ggilbo
+    type: direct
+    publisher_name: 금강일보
+    rss_url: https://www.ggilbo.com/rss/allArticle.xml
+
+  - feed_key: cctoday
+    type: direct
+    publisher_name: 충청투데이
+    rss_url: https://www.cctoday.co.kr/rss/allArticle.xml
+
+  - feed_key: joongdo
+    type: direct
+    publisher_name: 중도일보
+    rss_url: https://www.joongdo.co.kr/main/webdata/rss/ALL.xml
+
+  - feed_key: chungnamilbo
+    type: direct
+    publisher_name: 충남일보
+    rss_url: https://www.chungnamilbo.co.kr/rss/allArticle.xml
+
+  - feed_key: daejonilbo
+    type: direct
+    publisher_name: 대전일보
+    rss_url: https://www.daejonilbo.com/rss/allArticle.xml
+
+  - feed_key: sjpost
+    type: direct
+    publisher_name: 세종포스트
+    rss_url: https://www.sjpost.co.kr/rss/allArticle.xml
+
+  - feed_key: sjsori
+    type: direct
+    publisher_name: 세종의소리
+    rss_url: https://www.sjsori.com/rss/allArticle.xml
+
+  # ---- 전북 ----
+  - feed_key: jjan
+    type: direct
+    publisher_name: 전북일보
+    rss_url: https://www.jjan.kr/news/rssAll
+
+  - feed_key: jeollailbo
+    type: direct
+    publisher_name: 전라일보
+    rss_url: http://www.jeollailbo.com/rss/allArticle.xml
+
+  - feed_key: jeonmin
+    type: direct
+    publisher_name: 전민일보
+    rss_url: http://www.jeonmin.co.kr/rss/allArticle.xml
+
+  # ---- 전남 / 광주 ----
+  - feed_key: jnilbo
+    type: direct
+    publisher_name: 전남일보
+    rss_url: https://cdn.jnilbo.com/rss/gn_rss_allArticle.xml
+
+  - feed_key: namdonews
+    type: direct
+    publisher_name: 남도일보
+    rss_url: https://www.namdonews.com/rss/allArticle.xml
+
+  # ---- 경북 / 대구 ----
+  - feed_key: kyongbuk
+    type: direct
+    publisher_name: 경북일보
+    rss_url: https://www.kyongbuk.co.kr/rss/allArticle.xml
+
+  - feed_key: imaeil
+    type: direct
+    publisher_name: 매일신문
+    rss_url: https://www.imaeil.com/rss
+
+  # ---- 경남 / 부산 ----
+  - feed_key: idomin
+    type: direct
+    publisher_name: 경남도민일보
+    rss_url: https://www.idomin.com/rss/allArticle.xml
+
+  - feed_key: gnnews
+    type: direct
+    publisher_name: 경남일보
+    rss_url: https://www.gnnews.co.kr/rss/allArticle.xml
+
+  - feed_key: newsbusan
+    type: direct
+    publisher_name: 뉴스부산
+    rss_url: https://www.newsbusan.com/rss_view.php
+
+  - feed_key: google_news_busan
+    type: google_news_search
+    rss_url: https://news.google.com/rss/search?q=%EB%B6%80%EC%82%B0&hl=ko&gl=KR&ceid=KR%3Ako
+
+  # ---- 울산 ----
+  - feed_key: iusm
+    type: direct
+    publisher_name: 울산매일
+    rss_url: https://www.iusm.co.kr/rss/allArticle.xml
+
+  - feed_key: ulsanpress
+    type: direct
+    publisher_name: 울산신문
+    rss_url: https://www.ulsanpress.net/rss/allArticle.xml
+
+  - feed_key: ksilbo
+    type: direct
+    publisher_name: 경상일보
+    rss_url: https://www.ksilbo.co.kr/rss/allArticle.xml
+    note: 조사 시점 기준 최근 기사 날짜가 며칠 지연되어 있었음. 갱신 주기가 느릴 수 있음.
+
+  # ---- 제주 ----
+  - feed_key: jejunews
+    type: direct
+    publisher_name: 제주일보
+    rss_url: https://www.jejunews.com/rss/allArticle.xml
+
+  - feed_key: ihalla
+    type: direct
+    publisher_name: 한라일보
+    rss_url: https://www.ihalla.com/rss.php?section=73
+    note: 사이트가 공식 제공하는 유일한 RSS. 정치면 위주로 보여 전체기사가 아닐 수 있음.
