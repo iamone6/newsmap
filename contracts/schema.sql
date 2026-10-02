@@ -30,6 +30,17 @@ CREATE TABLE regions (
 CREATE INDEX regions_parent_code_idx ON regions (parent_code);
 CREATE INDEX regions_full_name_idx ON regions (full_name);
 
+COMMENT ON TABLE  regions              IS '행정구역 마스터. 행정안전부 행정동 코드(KIKcd_H) 기준. 폐지 코드도 삭제하지 않고 valid_to 로 표시';
+COMMENT ON COLUMN regions.code         IS '행정동 코드 10자리 (시도2 + 시군구3 + 읍면동3 + 리2)';
+COMMENT ON COLUMN regions.level        IS '행정구역 단위: 1 시도, 2 시군구, 3 읍면동';
+COMMENT ON COLUMN regions.sido_name    IS '시도명 (예: 경기도)';
+COMMENT ON COLUMN regions.sigungu_name IS '시군구명 (예: 수원시 영통구). 시도 행은 NULL';
+COMMENT ON COLUMN regions.emd_name     IS '읍면동명 (예: 매탄1동). 시도/시군구 행은 NULL';
+COMMENT ON COLUMN regions.full_name    IS '전체 지역명 (예: 경기도 수원시 영통구 매탄1동). LLM 지역명 매칭용';
+COMMENT ON COLUMN regions.parent_code  IS '상위 행정구역 코드. 읍면동→시군구, 일반구→시, 시군구→시도, 시도는 NULL';
+COMMENT ON COLUMN regions.valid_from   IS '코드 생성일 (원본 생성일자)';
+COMMENT ON COLUMN regions.valid_to     IS '코드 말소일 (원본 말소일자). NULL 이면 현재 유효';
+
 -- -----------------------------------------------------------------------------
 -- 통신사 (자사 생산 여부 / 이미지 라이선스 판단용 정규화 테이블)
 -- -----------------------------------------------------------------------------
@@ -40,6 +51,11 @@ CREATE TABLE wire_agencies (
 );
 
 CREATE INDEX wire_agencies_aliases_idx ON wire_agencies USING gin (aliases);
+
+COMMENT ON TABLE  wire_agencies         IS '통신사/타 언론사 정규화 목록. 전재 기사와 타사 이미지 라이선스 판단에 사용';
+COMMENT ON COLUMN wire_agencies.id      IS '통신사 ID';
+COMMENT ON COLUMN wire_agencies.name    IS '정규화된 통신사명 (예: 연합뉴스)';
+COMMENT ON COLUMN wire_agencies.aliases IS '기사 본문/캡션에 나타나는 표기 목록 (예: 연합, Yonhap). 정규화 매칭용';
 
 INSERT INTO wire_agencies (name, aliases) VALUES
     ('연합뉴스', '{연합,연합뉴스,Yonhap,YNA}'),
@@ -66,6 +82,11 @@ INSERT INTO sections (id, code, name) VALUES
     (4, 'culture',  '문화'),   -- 생활, 연예 포함
     (5, 'sports',   '스포츠'),
     (6, 'science',  '과학');   -- IT 포함
+
+COMMENT ON TABLE  sections      IS '기사 섹션 대분류 (6개 고정: 정치, 경제, 사회, 문화, 스포츠, 과학)';
+COMMENT ON COLUMN sections.id   IS '섹션 ID (1 정치, 2 경제, 3 사회, 4 문화, 5 스포츠, 6 과학)';
+COMMENT ON COLUMN sections.code IS '섹션 영문 코드 (예: politics)';
+COMMENT ON COLUMN sections.name IS '섹션 한글명. 문화는 생활·연예, 과학은 IT 포함';
 
 -- -----------------------------------------------------------------------------
 -- 기사
@@ -99,6 +120,25 @@ CREATE INDEX articles_feed_key_rss_link_idx ON articles (feed_key, rss_link);
 CREATE INDEX articles_published_at_idx ON articles (published_at);
 CREATE INDEX articles_created_at_idx ON articles (created_at);       -- 보존기간(1년) 삭제용
 
+COMMENT ON TABLE  articles                     IS '수집한 뉴스 기사. 기사·지역·섹션·이미지·청크는 모든 처리 후 한 트랜잭션으로 저장';
+COMMENT ON COLUMN articles.id                  IS '기사 ID';
+COMMENT ON COLUMN articles.feed_key            IS '수집한 RSS 피드 식별자 (피드 설정 파일의 키)';
+COMMENT ON COLUMN articles.publisher_name      IS '언론사명 (피드 설정 파일에 지정된 값)';
+COMMENT ON COLUMN articles.rss_link            IS 'RSS 항목의 기사 링크';
+COMMENT ON COLUMN articles.canonical_url       IS '기사 페이지의 canonical URL. 전역 유일 (중복 수집 방지)';
+COMMENT ON COLUMN articles.title               IS '기사 제목 (HTML 태그·특수문자 제거)';
+COMMENT ON COLUMN articles.subtitle            IS '부제목 (HTML 태그·특수문자 제거). 없으면 NULL';
+COMMENT ON COLUMN articles.body                IS '기사 본문 (HTML 태그·특수문자 제거)';
+COMMENT ON COLUMN articles.reporters           IS '기자명 목록 (LLM 추론). 이메일은 저장하지 않음';
+COMMENT ON COLUMN articles.wire_agency_id      IS '전재 통신사 ID (LLM 추론). NULL 이면 자사 생산 또는 판단 불가';
+COMMENT ON COLUMN articles.wire_source_raw     IS 'LLM 이 기사에서 찾은 통신사 원문 표기 (예: 연합뉴스 제공)';
+COMMENT ON COLUMN articles.published_at        IS '발행일시. RSS 발행일 → RSS 생성일 → 수집 시각 순으로 채움';
+COMMENT ON COLUMN articles.published_at_source IS 'published_at 을 채운 출처: rss_published, rss_created, collected';
+COMMENT ON COLUMN articles.rss_created_at      IS 'RSS 항목의 생성일시';
+COMMENT ON COLUMN articles.rss_updated_at      IS 'RSS 항목의 수정일시. 바뀌어도 재파싱하지 않고 값만 갱신';
+COMMENT ON COLUMN articles.created_at          IS '수집 시각 (행 생성 시각). 보존기간 삭제 기준';
+COMMENT ON COLUMN articles.updated_at          IS '행 수정 시각';
+
 -- -----------------------------------------------------------------------------
 -- 이미 본 RSS 항목 (기사 페이지를 열기 전 중복 필터)
 --   canonical_url 중복으로 버린 항목도 기존 기사 id 로 기록해 다시 열지 않는다.
@@ -112,6 +152,12 @@ CREATE TABLE seen_rss_links (
 );
 
 CREATE INDEX seen_rss_links_article_id_idx ON seen_rss_links (article_id);
+
+COMMENT ON TABLE  seen_rss_links            IS '이미 처리한 RSS 항목. 기사 페이지를 열기 전 중복 필터 (canonical_url 중복으로 버린 항목 포함)';
+COMMENT ON COLUMN seen_rss_links.feed_key   IS 'RSS 피드 식별자';
+COMMENT ON COLUMN seen_rss_links.rss_link   IS 'RSS 항목의 기사 링크';
+COMMENT ON COLUMN seen_rss_links.article_id IS '연결된 기사 ID (canonical_url 이 같은 기존 기사일 수 있음)';
+COMMENT ON COLUMN seen_rss_links.created_at IS '처음 본 시각';
 
 -- -----------------------------------------------------------------------------
 -- 기사-지역 (N:M)
@@ -137,6 +183,17 @@ CREATE INDEX article_regions_sigungu_code_idx ON article_regions (sigungu_code);
 CREATE INDEX article_regions_emd_code_idx ON article_regions (emd_code);
 CREATE UNIQUE INDEX article_regions_one_primary_idx ON article_regions (article_id) WHERE is_primary;
 
+COMMENT ON TABLE  article_regions              IS '기사-지역 연결 (N:M). LLM 이 판단한 기사 관련 지역. 지역 무관 기사는 행 없음';
+COMMENT ON COLUMN article_regions.id           IS '기사-지역 연결 ID';
+COMMENT ON COLUMN article_regions.article_id   IS '기사 ID';
+COMMENT ON COLUMN article_regions.sido_code    IS '시도 코드 (regions). 매칭 실패 시 NULL';
+COMMENT ON COLUMN article_regions.sigungu_code IS '시군구 코드 (regions). 판단 불가 또는 매칭 실패 시 NULL';
+COMMENT ON COLUMN article_regions.emd_code     IS '읍면동 코드 (regions). 판단 불가 또는 매칭 실패 시 NULL';
+COMMENT ON COLUMN article_regions.sido_name    IS 'LLM 이 돌려준 시도명 원문';
+COMMENT ON COLUMN article_regions.sigungu_name IS 'LLM 이 돌려준 시군구명 원문';
+COMMENT ON COLUMN article_regions.emd_name     IS 'LLM 이 돌려준 읍면동명 원문';
+COMMENT ON COLUMN article_regions.is_primary   IS '기사의 대표 지역 여부 (기사당 최대 1개). 검색 필터는 대표 여부와 무관';
+
 -- -----------------------------------------------------------------------------
 -- 기사-섹션 (N:M, 되도록 1개 / 대표 섹션은 is_primary)
 -- -----------------------------------------------------------------------------
@@ -149,6 +206,11 @@ CREATE TABLE article_sections (
 
 CREATE INDEX article_sections_section_id_idx ON article_sections (section_id);
 CREATE UNIQUE INDEX article_sections_one_primary_idx ON article_sections (article_id) WHERE is_primary;
+
+COMMENT ON TABLE  article_sections            IS '기사-섹션 연결 (N:M). LLM 이 판단한 섹션, 되도록 1개';
+COMMENT ON COLUMN article_sections.article_id IS '기사 ID';
+COMMENT ON COLUMN article_sections.section_id IS '섹션 ID';
+COMMENT ON COLUMN article_sections.is_primary IS '기사의 대표 섹션 여부 (기사당 최대 1개)';
 
 -- -----------------------------------------------------------------------------
 -- 기사 이미지 (썸네일 포함)
@@ -167,6 +229,16 @@ CREATE TABLE article_images (
 );
 
 CREATE UNIQUE INDEX article_images_one_thumbnail_idx ON article_images (article_id) WHERE is_thumbnail;
+
+COMMENT ON TABLE  article_images                   IS '기사 이미지 (썸네일 포함)와 캡션, 라이선스 출처';
+COMMENT ON COLUMN article_images.id                IS '이미지 ID';
+COMMENT ON COLUMN article_images.article_id        IS '기사 ID';
+COMMENT ON COLUMN article_images.position          IS '본문 내 이미지 순서 (0부터)';
+COMMENT ON COLUMN article_images.image_url         IS '이미지 URL';
+COMMENT ON COLUMN article_images.caption           IS '이미지 캡션 (HTML 태그·특수문자 제거). 없으면 NULL';
+COMMENT ON COLUMN article_images.credit_raw        IS 'LLM 이 캡션에서 찾은 출처/라이선스 원문 (예: 연합뉴스 제공)';
+COMMENT ON COLUMN article_images.license_agency_id IS '이미지 라이선스 통신사 ID. NULL 이면 자사 또는 라이선스 표시 없음';
+COMMENT ON COLUMN article_images.is_thumbnail      IS '썸네일 여부 (기사당 최대 1개)';
 
 -- -----------------------------------------------------------------------------
 -- 본문 청크
@@ -204,6 +276,20 @@ CREATE INDEX article_chunks_published_at_idx ON article_chunks (published_at);
 CREATE INDEX article_chunks_bm25_idx ON article_chunks
     USING paradedb (id, (embed_text::pdb.lindera(korean)), published_at, is_wire)
     WITH (key_field = 'id');
+
+COMMENT ON TABLE  article_chunks              IS '기사 본문 청크와 임베딩. RAG 하이브리드 검색(BM25 + 벡터) 대상';
+COMMENT ON COLUMN article_chunks.id           IS '청크 ID';
+COMMENT ON COLUMN article_chunks.article_id   IS '기사 ID';
+COMMENT ON COLUMN article_chunks.chunk_index  IS '기사 내 청크 순번 (0부터)';
+COMMENT ON COLUMN article_chunks.content      IS '청크 원문 (문단 기준 분할, 앞뒤 10% 오버랩 포함)';
+COMMENT ON COLUMN article_chunks.embed_text   IS '임베딩·BM25 대상 텍스트. [지역 | 날짜 | 제목] 헤더 + content';
+COMMENT ON COLUMN article_chunks.token_count  IS 'content 토큰 수 (Qwen3 토크나이저 기준, 오버랩 포함 최대 500)';
+COMMENT ON COLUMN article_chunks.embedding    IS 'Qwen3-Embedding-0.6B 임베딩 (1024차원, halfvec)';
+COMMENT ON COLUMN article_chunks.region_codes IS '검색 필터용 지역 코드. 기사 지역을 상위 단위까지 펼친 값 (예: 매탄1동, 영통구, 수원시, 경기도)';
+COMMENT ON COLUMN article_chunks.section_ids  IS '검색 필터용 섹션 ID 목록 (article_sections 복사)';
+COMMENT ON COLUMN article_chunks.published_at IS '검색 필터용 기사 발행일시 (articles.published_at 복사)';
+COMMENT ON COLUMN article_chunks.is_wire      IS '검색 필터용 통신사 기사 여부 (articles.wire_agency_id IS NOT NULL)';
+COMMENT ON COLUMN article_chunks.created_at   IS '청크 생성 시각';
 
 -- -----------------------------------------------------------------------------
 -- 하이브리드 검색: BM25 + 벡터를 RRF 로 결합
@@ -289,5 +375,8 @@ AS $$
     ORDER BY f.score DESC, c.id
     LIMIT p_limit;
 $$;
+
+COMMENT ON FUNCTION search_chunks(text, halfvec, varchar[], smallint[], timestamptz, timestamptz, boolean, integer, integer, integer, double precision, double precision)
+    IS '하이브리드 검색: BM25(한국어 Lindera) 와 벡터(HNSW 코사인) 결과를 RRF 로 결합. 지역·섹션·기간·통신사 제외 필터 지원';
 
 COMMIT;

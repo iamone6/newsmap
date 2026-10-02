@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# ---- 로컬 전용 docker compose 설정 ----
+docker-compose.override.yml
+
 # ---- OS / 에디터 ----
 .DS_Store
 Thumbs.db
