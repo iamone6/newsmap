@@ -17,6 +17,8 @@
 
 각 앱은 자기 `.env`를 따로 가집니다. 저장소에는 `.env.example`만 커밋합니다.
 
+Python(`apps/rag`)은 [uv](https://docs.astral.sh/uv/)로 관리합니다. `apps/rag`에서 `uv sync`를 실행하면 `apps/rag/.venv`가 만들어집니다. `pyproject.toml`과 `uv.lock`은 커밋하고 `.venv`는 커밋하지 않습니다.
+
 ## DB 버전
 
 | 구성 요소 | 버전 | 설치 방법 |
