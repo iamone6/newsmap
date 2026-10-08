@@ -36,6 +36,7 @@
   - 패키지 관리는 uv (2026-10-03 결정). `apps/rag/pyproject.toml`, `uv.lock`, `.python-version`을 커밋하고, 가상환경은 `apps/rag`에서 `uv sync`로 만드는 `apps/rag/.venv`를 쓴다 (커밋하지 않음). 루트 uv 워크스페이스는 Python 앱이 늘어나면 검토한다.
   - Python 3.14 (2026-10-03 기준 최신 안정 버전 3.14.8). `.python-version`에는 마이너 버전 `3.14`만 고정하고 패치는 uv가 최신으로 받는다. `pyproject.toml`의 `requires-python`은 `>=3.14`. 3.15.0은 결정 시점에 RC 단계라 제외했다.
   - DB 보조 스크립트(`apps/db/scripts/*.py`)는 rag 환경과 섞지 않고 PEP 723 인라인 의존성 + `uv run`으로 실행한다.
+  - 수집 파이프라인은 langchain(2026-10-07 결정, stable 1.4.x 계열)을 쓴다. 청킹은 `langchain_text_splitters.RecursiveCharacterTextSplitter`(이미 결정한 Recursive Character Splitter와 동일 개념)를 쓰고, 토큰 길이 계산은 Qwen3 토크나이저로 넘겨준다. LLM 판단·임베딩 쪽을 langchain의 모델 추상화로 감쌀지, DeepInfra 호출을 직접 할지는 아직 안 정했고 내일 모듈 구현 때 정한다.
 - 조회와 검색: Laravel (`apps/be`)
 - cron: 앱 쪽에서 실행하고, DB에는 넣지 않는다.
 - 수집(RSS fetch)과 정제·청킹·임베딩·적재는 별도 프로세스/cron으로 분리하지 않는다. 기사 단위로 단일 실행(cron 1개) 안에서 끝까지 처리한다. `seen_rss_links.article_id`가 `NOT NULL` FK라 기사 행이 만들어지기 전에는 "이미 봤다"는 상태를 남길 수 없어, 수집만 따로 떼어 영속화하려면 스키마 변경(스테이징 테이블 등)이 필요하기 때문이다. 코드 모듈(수집/파싱/LLM 판단/청킹/임베딩/저장)은 기능별로 나누되 실행 단위는 하나로 둔다.
