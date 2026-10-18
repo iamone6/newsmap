@@ -17,8 +17,9 @@
 
 ## 2. 인프라와 배포
 
-- docker-compose로 띄우고, 지금은 postgres 서비스만 둔다.
-- Dockerfile 위치와 이름: `dockerfiles/{fe,be,rag,db}.dockerfile` (지금은 `db.dockerfile`만 있음)
+- docker-compose로 띄우고, 지금은 postgres 서비스만 둔다. `dockerfiles/rag.dockerfile`은 만들었지만 아직 compose 서비스로 연동하지 않았다.
+- Dockerfile 위치와 이름: `dockerfiles/{fe,be,rag,db}.dockerfile` (저장소 루트의 `dockerfiles/`, `db.dockerfile`·`rag.dockerfile` 있음)
+- `rag.dockerfile` (2026-10-19 결정): 베이스는 `ubuntu:26.04`(결정 시점 `ubuntu:latest`가 가리키는 버전, LTS), Python/의존성 관리는 uv(`ghcr.io/astral-sh/uv:0.13.1`에서 바이너리만 멀티스테이지로 복사, apt python 안 씀). 버전을 올릴 때는 이 ARG(`UV_VERSION`)와 Ubuntu 베이스 태그를 같이 확인한다. 빌드 컨텍스트는 `apps/rag/`(Dockerfile 자체 위치와는 다름): `docker build -f dockerfiles/rag.dockerfile apps/rag`.
 - `.env`는 앱마다 따로 둔다. 저장소에는 `.env.example`만 커밋한다.
   - `apps/db/.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`. compose가 `env_file`로 읽는다.
   - `apps/be/.env`: Laravel의 `DB_*`

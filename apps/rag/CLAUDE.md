@@ -6,6 +6,9 @@
 
 `apps/rag`는 지역 뉴스 RSS를 수집해 기사별로 [페이지 파싱 → LLM 판단 → 청킹 → 임베딩 → DB 저장]까지 진행하는 Python 워커다. 수집·크롤링·LLM 판단·청킹·임베딩이 이 프로젝트의 역할이고, 조회·검색은 `apps/be`(Laravel)가 맡는다. cron이나 수동 실행으로 스크립트를 돌리면 설정된 모든 피드를 순회하며 신규 기사를 끝까지 처리한다.
 
+## 개발 및 서비스 환경(dockerfile)
+`dockerfiles/rag.dockerfile`에 위치한다 (저장소 루트 `dockerfiles/`, `db.dockerfile`과 같은 자리). 빌드 컨텍스트는 `apps/rag/`다: `docker build -f dockerfiles/rag.dockerfile apps/rag`. 루트 `docker-compose.yml`에 서비스로 아직 연동하지 않았다.
+
 ## 작업 시작 전에 읽을 것
 
 1. `contracts/schema.sql` — 이 워커가 쓰는 테이블·컬럼·제약의 계약. 코드는 이 스키마에 맞춘다. 스키마를 고쳐야 할 것 같으면 직접 고치지 말고 이유와 제안 diff를 보고한다.
