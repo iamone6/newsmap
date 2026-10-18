@@ -1,0 +1,16 @@
+[project]
+name = "rag"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "langchain>=1.4,<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+# 배포용 라이브러리가 아니라 cron 으로 실행하는 애플리케이션이라 패키지로 빌드하지 않는다.
+package = false
