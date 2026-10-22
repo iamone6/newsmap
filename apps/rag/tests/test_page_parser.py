@@ -24,6 +24,11 @@ def test_parse_real_article_fixture():
     assert article.images[0].caption == "법원. 연합뉴스TV 자료사진"
 
 
+def test_site_chrome_icon_is_filtered():
+    assert page_parser._is_site_chrome_image("https://www.joongboo.com/image/icon_google.png") is True
+    assert page_parser._is_site_chrome_image("https://cdn.joongboo.com/news/photo/202610/1.jpg") is False
+
+
 def test_parse_raises_on_empty_html():
     import pytest
 

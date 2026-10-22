@@ -71,6 +71,12 @@ def _truncate_at_byline(text: str) -> str:
     return text[: match.end()]
 
 
+def _is_site_chrome_image(image_url: str) -> bool:
+    """구글 팔로우 아이콘처럼 기사 내용이 아니라 사이트 장식용인 이미지를 걸러낸다."""
+    lowered = image_url.lower()
+    return "icon" in lowered
+
+
 def _strip_title_suffix(title: str, publisher_name: str | None) -> str:
     if publisher_name and title.endswith(f" - {publisher_name}"):
         return title[: -len(f" - {publisher_name}")].strip()
@@ -107,9 +113,12 @@ def parse(html_text: str, *, fetched_url: str, publisher_name: str | None = None
     raw_text = _truncate_at_byline(data.get("text") or "")
 
     images: list[ParsedImage] = []
-    for position, match in enumerate(_MD_IMAGE_RE.finditer(raw_text)):
+    for match in _MD_IMAGE_RE.finditer(raw_text):
+        image_url = match.group("url")
+        if _is_site_chrome_image(image_url):
+            continue
         caption = match.group("caption").strip() or None
-        images.append(ParsedImage(position=position, image_url=match.group("url"), caption=caption))
+        images.append(ParsedImage(position=len(images), image_url=image_url, caption=caption))
 
     body_without_images = _MD_IMAGE_RE.sub("", raw_text)
     body = _clean_text(body_without_images)
