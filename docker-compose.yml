@@ -20,3 +20,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  rag:
+    build:
+      context: ./apps/rag
+      dockerfile: ../../dockerfiles/rag.dockerfile
+    image: newsmap-rag:0.1.0
+    env_file:
+      - ./apps/rag/.env
+    environment:
+      TZ: Asia/Seoul
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
