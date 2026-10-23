@@ -37,5 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# TODO: pipeline 모듈이 생기면 실제 엔트리포인트로 바꾼다 (예: uv run python -m rag.pipeline).
-CMD ["uv", "run", "python", "--version"]
+# 컨테이너는 계속 떠 있기만 하고, 실제 실행은 그때그때 docker compose exec 로 넣는다
+# (예: docker compose exec rag uv run python -m rag.cli --feed-key joongboo).
+# rag.cli 가 --feed-key 를 필수로 받아 커맨드 하나로 고정할 수 없어서 이 방식을 쓴다.
+CMD ["sleep", "infinity"]

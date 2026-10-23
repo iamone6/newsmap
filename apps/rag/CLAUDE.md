@@ -7,7 +7,16 @@
 `apps/rag`는 지역 뉴스 RSS를 수집해 기사별로 [페이지 파싱 → LLM 판단 → 청킹 → 임베딩 → DB 저장]까지 진행하는 Python 워커다. 수집·크롤링·LLM 판단·청킹·임베딩이 이 프로젝트의 역할이고, 조회·검색은 `apps/be`(Laravel)가 맡는다. cron이나 수동 실행으로 스크립트를 돌리면 설정된 모든 피드를 순회하며 신규 기사를 끝까지 처리한다.
 
 ## 개발 및 서비스 환경(dockerfile)
-`dockerfiles/rag.dockerfile`에 위치한다 (저장소 루트 `dockerfiles/`, `db.dockerfile`과 같은 자리). 빌드 컨텍스트는 `apps/rag/`다: `docker build -f dockerfiles/rag.dockerfile apps/rag`. 루트 `docker-compose.yml`에 서비스로 아직 연동하지 않았다.
+`dockerfiles/rag.dockerfile`에 위치한다 (저장소 루트 `dockerfiles/`, `db.dockerfile`과 같은 자리). 빌드 컨텍스트는 `apps/rag/`다: `docker build -f dockerfiles/rag.dockerfile apps/rag`.
+
+루트 `docker-compose.yml`에 `rag` 서비스로 연동돼 있다(`db`에 `depends_on: condition: service_healthy`, `DB_HOST`는 `db`로 오버라이드). `rag.cli`가 `--feed-key`를 필수로 받아서 커맨드를 하나로 고정할 수 없기 때문에, 컨테이너는 `CMD ["sleep", "infinity"]`로 계속 떠 있기만 하고(`restart: unless-stopped`), 실제 실행은 그때그때 `docker compose exec`로 넣는다:
+
+```bash
+docker compose up -d            # db, rag 둘 다 계속 떠 있음
+docker compose exec rag uv run python -m rag.cli --feed-key joongboo
+```
+
+나중에 주기적으로 돌릴 때도 호스트 cron(또는 다른 스케줄러)이 이 `docker compose exec` 커맨드를 피드별로 호출하는 모양이 된다. 컨테이너 안에 자체 스케줄러를 넣는 방식은 아직 채택 안 했다.
 
 ## 작업 시작 전에 읽을 것
 

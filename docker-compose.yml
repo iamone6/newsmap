@@ -26,6 +26,7 @@ services:
       context: ./apps/rag
       dockerfile: ../../dockerfiles/rag.dockerfile
     image: newsmap-rag:0.1.0
+    restart: unless-stopped
     env_file:
       - ./apps/rag/.env
     environment:
