@@ -57,6 +57,16 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 - **imaeil(매일신문)**: RSS `<pubDate>`가 시간대 표기 없는 KST 시각(`2026-10-23 19:15:48` 형식)으로 내려온다. 다른 피드는 RFC822(`+0900` 포함)라 문제없지만, 이 피드는 시간대가 없어 `feedparser`가 UTC로 간주해버려 실제보다 9시간 앞선 시각으로 파싱된다(`published_parsed`/`created_parsed`/`updated_parsed` 전부 영향받음). `rag/pipeline.py`의 `FEEDS_WITH_NAIVE_KST_PUBDATE`에 `feed_key`를 등록해, 해당 피드로 변환한 datetime에서 9시간을 빼는 예외 처리로 보정한다. 다른 피드에서 같은 증상이 발견되면 같은 집합에 추가한다.
   - 2026-10-23에 이 버그로 이미 잘못 저장된 imaeil 999건(`articles.published_at`/`rss_created_at`/`rss_updated_at`, `article_chunks.published_at`)은 전부 9시간을 빼는 1회성 SQL로 보정했다(코드 수정 전 데이터).
 
+## 참고: 실행 통계 (2026-10-23, feeds.yaml 전체 34개 피드 1회 실행)
+
+`--feed-key ALL`로 처음 전체 피드를 돌렸을 때의 실측치. 이후 imaeil 시간대 버그·jnilbo 썸네일 중복 버그가 고쳐지고 `MAX_ITEMS_PER_BATCH` 상한(기본 50)이 생겨 피드당 처리량 등 조건이 달라졌으니, 이 수치는 "대략 이 정도 걸리고 이 정도 든다"는 감을 잡는 참고용이지 현재 설정 그대로 재현되는 값은 아니다.
+
+- 총 소요 시간: 3시간 47분 (16:28:04 → 20:15:37)
+- 총 신규 기사: 2,813건 (처리 성공 2,774 / 중복(canonical) 4 / 실패 35 — 실패 중 28건은 jnilbo 썸네일 중복 버그, 이후 재실행으로 전부 해소됨)
+- 건당 평균 처리 시간: 약 4.9초 (페이지 수집 + LLM 판단 + 청킹 + 임베딩 + DB 적재 전체 포함)
+- 예상 비용: 총 $0.48 (LLM $0.46 + 임베딩 $0.02) — LLM 입력 585만 토큰·출력 58만 토큰(2806회 호출), 임베딩 248만 토큰(2802회 호출)
+- DB 최종 적재량(이전 테스트분 포함 누적): `articles` 2874 · `article_regions` 2154 · `article_sections` 2816 · `article_images` 6369 · `article_chunks` 7012 · `seen_rss_links` 2878
+
 ## 지켜야 할 것
 
 - 기사 하나의 실패가 같은 실행의 다른 기사 처리를 막지 않게 한다. 실패는 로그로만 남긴다.
