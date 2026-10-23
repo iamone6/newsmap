@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import calendar
+import concurrent.futures
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -209,6 +211,7 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
 
 
 def run(feed_key: str) -> RunResult:
+    threading.current_thread().name = feed_key  # run_all() 에서 병렬 실행 시 로그에서 피드를 구분하기 위함
     settings = config.load_settings()
     feeds_file = config.load_feeds()
     feed = feeds_file.feeds.get(feed_key)
@@ -243,13 +246,23 @@ def run(feed_key: str) -> RunResult:
 
 
 def run_all() -> dict[str, RunResult]:
-    """feeds.yaml 의 모든 feed_key 를 순회한다. 피드 하나가 실패해도 나머지는 계속 처리한다."""
+    """feeds.yaml 의 모든 feed_key 를 `MAX_CONCURRENT_FEEDS` 개씩 동시에 처리한다.
+
+    피드별 처리는 각자 자기 DB 커넥션을 열고 닫는 자기완결적인 `run()` 호출이라 스레드로
+    동시에 돌려도 안전하다. 피드 하나가 실패해도 나머지는 계속 처리한다.
+    """
+    settings = config.load_settings()
     feeds_file = config.load_feeds()
+    chunker.count_tokens("")  # Qwen3 토크나이저를 메인 스레드에서 먼저 1회 빌드해 캐시 레이스를 없앤다.
+
     results: dict[str, RunResult] = {}
-    for feed_key in feeds_file.feeds:
-        try:
-            results[feed_key] = run(feed_key)
-        except Exception:
-            log.exception("피드 처리 실패: feed_key=%s", feed_key)
-            results[feed_key] = RunResult(total_new=0, processed=0, failed=1, skipped_duplicate_canonical=0)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=settings.max_concurrent_feeds) as executor:
+        future_to_key = {executor.submit(run, feed_key): feed_key for feed_key in feeds_file.feeds}
+        for future in concurrent.futures.as_completed(future_to_key):
+            feed_key = future_to_key[future]
+            try:
+                results[feed_key] = future.result()
+            except Exception:
+                log.exception("피드 처리 실패: feed_key=%s", feed_key)
+                results[feed_key] = RunResult(total_new=0, processed=0, failed=1, skipped_duplicate_canonical=0)
     return results

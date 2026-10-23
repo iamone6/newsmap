@@ -28,6 +28,7 @@ class Settings:
     chunk_max_tokens: int
     chunk_overlap_ratio: float
     max_items_per_batch: int
+    max_concurrent_feeds: int
 
 
 def load_settings() -> Settings:
@@ -60,6 +61,10 @@ def load_settings() -> Settings:
         # 피드 하나가 한 번에 쌓아둔 신규 기사가 너무 많으면(예: imaeil 1000건) 한 실행이 과도하게
         # 오래 걸리므로, 실행 1회당 피드별 처리 건수를 제한한다. 나머지는 다음 실행에서 이어 처리된다.
         max_items_per_batch=int(os.environ.get("MAX_ITEMS_PER_BATCH", "50")),
+        # --feed-key ALL 실행 시 피드를 동시에 몇 개까지 병렬로 처리할지. DeepInfra 쪽 동시
+        # 요청 제한을 알 수 없어 보수적으로 시작하고, 로그에 429/rate-limit 에러가 없으면
+        # 점진적으로 올려본다(새로 정한 기본값).
+        max_concurrent_feeds=int(os.environ.get("MAX_CONCURRENT_FEEDS", "4")),
     )
 
 

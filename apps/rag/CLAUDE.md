@@ -19,6 +19,8 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 나중에 주기적으로 돌릴 때도 호스트 cron(또는 다른 스케줄러)이 이 `docker compose exec` 커맨드를 피드별로 호출하는 모양이 된다. 컨테이너 안에 자체 스케줄러를 넣는 방식은 아직 채택 안 했다.
 
+`--feed-key ALL`은 피드를 순차가 아니라 `MAX_CONCURRENT_FEEDS`(기본 4)개씩 스레드풀로 동시에 처리한다. 병목이 LLM/임베딩 API 호출 대기(네트워크 I/O)라 스레드로도 실제 동시성이 난다. DeepInfra 쪽 동시 요청 제한을 모르니 보수적인 기본값에서 시작했고, 로그에 429/rate-limit 에러가 안 보이면 `.env`의 `MAX_CONCURRENT_FEEDS`를 올려봐도 된다. 로그 포맷에 `[%(threadName)s]`를 넣어 어느 피드의 로그인지 구분할 수 있다.
+
 ## 작업 시작 전에 읽을 것
 
 1. `contracts/schema.sql` — 이 워커가 쓰는 테이블·컬럼·제약의 계약. 코드는 이 스키마에 맞춘다. 스키마를 고쳐야 할 것 같으면 직접 고치지 말고 이유와 제안 diff를 보고한다.
@@ -56,6 +58,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 - **imaeil(매일신문)**: RSS `<pubDate>`가 시간대 표기 없는 KST 시각(`2026-10-23 19:15:48` 형식)으로 내려온다. 다른 피드는 RFC822(`+0900` 포함)라 문제없지만, 이 피드는 시간대가 없어 `feedparser`가 UTC로 간주해버려 실제보다 9시간 앞선 시각으로 파싱된다(`published_parsed`/`created_parsed`/`updated_parsed` 전부 영향받음). `rag/pipeline.py`의 `FEEDS_WITH_NAIVE_KST_PUBDATE`에 `feed_key`를 등록해, 해당 피드로 변환한 datetime에서 9시간을 빼는 예외 처리로 보정한다. 다른 피드에서 같은 증상이 발견되면 같은 집합에 추가한다.
   - 2026-10-23에 이 버그로 이미 잘못 저장된 imaeil 999건(`articles.published_at`/`rss_created_at`/`rss_updated_at`, `article_chunks.published_at`)은 전부 9시간을 빼는 1회성 SQL로 보정했다(코드 수정 전 데이터).
+- **서로 다른 두 피드가 같은 canonical_url을 동시에 저장하려는 경우**: `--feed-key ALL`이 피드를 병렬로 처리하므로(위 참고), 두 피드가 정확히 같은 순간에 똑같은 `canonical_url`을 처음 저장하려 하면 하나는 `articles_canonical_url_key` 유니크 제약 위반으로 그 기사 처리만 실패한다. `seen_rss_links`에 기록되지 않으므로 다음 실행에서 재시도되고, 그때는 이미 기사가 있으니 조회만 하고 끝난다 — "실패는 로그로만 남기고 다음 cron에 맡긴다" 원칙대로 자연히 치유된다. 코드로 막지 않고 문서화만 해둔다.
 
 ## 참고: 실행 통계 (2026-10-23, feeds.yaml 전체 34개 피드 1회 실행)
 

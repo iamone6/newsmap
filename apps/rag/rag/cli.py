@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
     )
 
     usage.reset()
