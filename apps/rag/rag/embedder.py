@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from langchain_openai import OpenAIEmbeddings
 
+from rag.retry import call_with_retry
+
 # Qwen3-Embedding 공식 권장 질의용 instruction.
 QUERY_INSTRUCTION = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
 
@@ -27,7 +29,9 @@ def _client(*, base_url: str, api_key: str, model: str) -> OpenAIEmbeddings:
 def embed_documents(
     texts: list[str], *, base_url: str, api_key: str, model: str, expected_dimensions: int
 ) -> list[list[float]]:
-    vectors = _client(base_url=base_url, api_key=api_key, model=model).embed_documents(texts)
+    client = _client(base_url=base_url, api_key=api_key, model=model)
+    # 차원 검사는 재시도 대상이 아니다 - 모델 설정이 틀린 거라 재시도해도 결과가 안 바뀐다.
+    vectors = call_with_retry(lambda: client.embed_documents(texts), description="임베딩 호출")
     _check_dimensions(vectors, expected_dimensions)
     return vectors
 
@@ -35,9 +39,8 @@ def embed_documents(
 def embed_query(
     text: str, *, base_url: str, api_key: str, model: str, expected_dimensions: int
 ) -> list[float]:
-    vector = _client(base_url=base_url, api_key=api_key, model=model).embed_query(
-        QUERY_INSTRUCTION + text
-    )
+    client = _client(base_url=base_url, api_key=api_key, model=model)
+    vector = call_with_retry(lambda: client.embed_query(QUERY_INSTRUCTION + text), description="쿼리 임베딩 호출")
     _check_dimensions([vector], expected_dimensions)
     return vector
 

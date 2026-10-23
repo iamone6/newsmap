@@ -50,6 +50,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 5. `published_at` = RSS 발행일 → RSS 생성일 → 수집 시각, 사용한 출처를 `published_at_source`에 기록.
 6. 청킹: 문단 우선 `RecursiveCharacterTextSplitter`, Qwen3 토크나이저로 오버랩 포함 최대 `CHUNK_MAX_TOKENS`, 앞뒤 `CHUNK_OVERLAP_RATIO`. `token_count`, `chunk_index`(0부터) 저장.
 7. `embed_text` = `[지역: … | 날짜: YYYY-MM-DD | 제목: …]` 헤더 + 청크 본문. DeepInfra OpenAI 호환 API로 문서용 임베딩(쿼리 instruction은 붙이지 않음), `EMBEDDING_DIMENSIONS`와 응답 차원이 다르면 실패 처리. 차원을 바꾸는 건 `schema.sql`의 `halfvec(1024)`와 `search_chunks()` 파라미터 타입을 함께 바꾸고 전체를 다시 임베딩해야 하는 큰 변경이라, 직접 하지 말고 질문으로 보고한다. 모델을 바꾸면 README 표에 기록한다.
+   - LLM 판단(`llm_judge.judge_article`)과 임베딩(`embedder.embed_documents`/`embed_query`) 호출은 `rag/retry.py`의 `call_with_retry()`로 감싸져 있어, 실패하면(429 `engine_overloaded` 등) 1초 후 재시도를 최대 3번까지 한다(최초 1회 + 재시도 3회 = 최대 4회 시도). 재시도마다 실제 과금되는 호출이라 매 시도의 토큰 사용량이 `usage.record_llm`에 그대로 집계된다. 4번 다 실패하면 그 예외가 그대로 올라가 기사 1건만 실패 처리된다(기존 "실패는 로그로만" 원칙 그대로).
 8. 청크 필터 컬럼: `region_codes`(기사 지역 코드를 `regions.parent_code`로 시도까지 펼친 합집합), `section_ids`, `published_at`, `is_wire`(= `wire_agency_id IS NOT NULL`).
 9. 기사·지역·섹션·이미지·청크·`seen_rss_links`를 **한 트랜잭션**으로 저장. LLM·임베딩 호출은 트랜잭션 밖에서 미리 끝낸다. 실패 시 아무것도 저장하지 않고 다음 cron에 맡긴다(상태/재시도 컬럼 없음).
 10. 수집(RSS fetch)과 정제·청킹·임베딩·적재는 별도 프로세스/cron으로 분리하지 않는다 — `seen_rss_links.article_id`가 `NOT NULL` FK라 기사 행이 만들어지기 전엔 "이미 봤다"는 상태를 영속화할 수 없기 때문이다. 코드 모듈(수집/파싱/LLM 판단/청킹/임베딩/저장)은 기능별로 나누되 실행 단위는 cron 1개로 둔다.

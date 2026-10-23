@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from rag import usage
+from rag.retry import call_with_retry
 
 SectionCode = Literal["politics", "economy", "society", "culture", "sports", "science"]
 
@@ -68,6 +69,15 @@ def _format_images(captions: list[str | None]) -> str:
     return "\n".join(f"{i}: {caption or '(캡션 없음)'}" for i, caption in enumerate(captions))
 
 
+def _invoke_once(structured, prompt: str) -> ArticleJudgment:
+    result = structured.invoke(prompt)
+    token_usage = getattr(result["raw"], "usage_metadata", None) or {}
+    usage.record_llm(token_usage.get("input_tokens", 0), token_usage.get("output_tokens", 0))
+    if result["parsing_error"] is not None:
+        raise ValueError(f"LLM 구조화 출력 파싱 실패: {result['parsing_error']}")
+    return result["parsed"]
+
+
 def judge_article(
     *,
     title: str,
@@ -80,9 +90,6 @@ def judge_article(
     llm = ChatOpenAI(base_url=base_url, api_key=api_key, model=model, temperature=0)
     structured = llm.with_structured_output(ArticleJudgment, method="function_calling", include_raw=True)
     prompt = _PROMPT.format(title=title, body=body, images=_format_images(image_captions))
-    result = structured.invoke(prompt)
-    token_usage = getattr(result["raw"], "usage_metadata", None) or {}
-    usage.record_llm(token_usage.get("input_tokens", 0), token_usage.get("output_tokens", 0))
-    if result["parsing_error"] is not None:
-        raise ValueError(f"LLM 구조화 출력 파싱 실패: {result['parsing_error']}")
-    return result["parsed"]
+    # 호출/파싱 둘 다 재시도 대상에 포함한다 - 재시도마다 실제 과금되는 호출이라 매 시도마다
+    # usage.record_llm 이 불려야 비용 집계가 정확하다.
+    return call_with_retry(lambda: _invoke_once(structured, prompt), description="LLM 판단 호출")
