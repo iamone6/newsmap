@@ -7,6 +7,8 @@ from typing import Literal
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from rag import usage
+
 SectionCode = Literal["politics", "economy", "society", "culture", "sports", "science"]
 
 # contracts/schema.sql 의 sections 시드 데이터와 동일 (고정 6개).
@@ -79,6 +81,8 @@ def judge_article(
     structured = llm.with_structured_output(ArticleJudgment, method="function_calling", include_raw=True)
     prompt = _PROMPT.format(title=title, body=body, images=_format_images(image_captions))
     result = structured.invoke(prompt)
+    token_usage = getattr(result["raw"], "usage_metadata", None) or {}
+    usage.record_llm(token_usage.get("input_tokens", 0), token_usage.get("output_tokens", 0))
     if result["parsing_error"] is not None:
         raise ValueError(f"LLM 구조화 출력 파싱 실패: {result['parsing_error']}")
     return result["parsed"]

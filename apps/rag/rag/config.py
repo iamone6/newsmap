@@ -27,6 +27,7 @@ class Settings:
     llm_model: str
     chunk_max_tokens: int
     chunk_overlap_ratio: float
+    max_items_per_batch: int
 
 
 def load_settings() -> Settings:
@@ -56,6 +57,9 @@ def load_settings() -> Settings:
         llm_model=_require("LLM_MODEL"),
         chunk_max_tokens=int(_require("CHUNK_MAX_TOKENS")),
         chunk_overlap_ratio=float(_require("CHUNK_OVERLAP_RATIO")),
+        # 피드 하나가 한 번에 쌓아둔 신규 기사가 너무 많으면(예: imaeil 1000건) 한 실행이 과도하게
+        # 오래 걸리므로, 실행 1회당 피드별 처리 건수를 제한한다. 나머지는 다음 실행에서 이어 처리된다.
+        max_items_per_batch=int(os.environ.get("MAX_ITEMS_PER_BATCH", "50")),
     )
 
 

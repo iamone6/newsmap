@@ -44,11 +44,17 @@ def fetch_new_items(
     conn,
     feed: FeedConfig,
     feeds_file: FeedsFile,
+    max_items: int = 50,
 ) -> list[CollectedItem]:
+    """신규 항목을 최대 `max_items`개까지만 반환한다. 피드 순서(보통 최신순)대로 앞에서부터 채우고,
+    상한을 넘는 나머지 항목은 아직 '본 적 없음' 상태로 남아 다음 실행에서 이어 처리된다."""
     entries = _fetch_entries(feed.rss_url)
     items: list[CollectedItem] = []
 
     for entry in entries:
+        if len(items) >= max_items:
+            break
+
         link = entry.get("link")
         if not link:
             continue

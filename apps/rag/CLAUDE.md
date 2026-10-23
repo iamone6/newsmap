@@ -14,6 +14,7 @@
 ```bash
 docker compose up -d            # db, rag 둘 다 계속 떠 있음
 docker compose exec rag uv run python -m rag.cli --feed-key joongboo
+docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml 전체 피드 순회
 ```
 
 나중에 주기적으로 돌릴 때도 호스트 cron(또는 다른 스케줄러)이 이 `docker compose exec` 커맨드를 피드별로 호출하는 모양이 된다. 컨테이너 안에 자체 스케줄러를 넣는 방식은 아직 채택 안 했다.
@@ -36,6 +37,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key joongboo
 ## 파이프라인 (기사 1건 기준)
 
 1. `feeds.yaml`에서 `feed_key`, `publisher_name`(`direct`만), RSS URL을 읽는다. `google_news_search` 타입은 언론사명을 설정에 넣지 않고 item의 `<source>` 태그에서 읽으며, `<link>`는 구글 내부 리다이렉트 ID라 실제 기사 URL로 디코딩하는 과정이 필요하다. `exclude_sources`에 걸리는 도메인의 기사는 처리하지 않는다.
+   - 피드 하나에서 실행 1회에 처리하는 신규 기사 수는 `MAX_ITEMS_PER_BATCH`(기본 50)로 제한한다. 피드가 한 번에 쌓아둔 신규 기사가 이보다 많아도(예: imaeil 이 1000건을 내려준 적 있음) 앞에서부터 50건만 처리하고 나머지는 `seen_rss_links`에 기록되지 않은 채 남아 다음 실행에서 이어 처리된다.
 2. RSS 항목마다 `seen_rss_links (feed_key, rss_link)` 조회.
    - 있으면 페이지를 열지 않는다. RSS `updated_at`이 다르면 `articles.rss_updated_at`만 갱신하고 끝.
 3. 기사 페이지에서 제목, 부제목, 본문, canonical URL, 썸네일, 이미지 URL+캡션을 추출한다. 제목·부제목·본문·캡션은 HTML 태그와 특수문자를 제거한다. 원본 HTML은 저장하지 않는다.
@@ -49,6 +51,11 @@ docker compose exec rag uv run python -m rag.cli --feed-key joongboo
 8. 청크 필터 컬럼: `region_codes`(기사 지역 코드를 `regions.parent_code`로 시도까지 펼친 합집합), `section_ids`, `published_at`, `is_wire`(= `wire_agency_id IS NOT NULL`).
 9. 기사·지역·섹션·이미지·청크·`seen_rss_links`를 **한 트랜잭션**으로 저장. LLM·임베딩 호출은 트랜잭션 밖에서 미리 끝낸다. 실패 시 아무것도 저장하지 않고 다음 cron에 맡긴다(상태/재시도 컬럼 없음).
 10. 수집(RSS fetch)과 정제·청킹·임베딩·적재는 별도 프로세스/cron으로 분리하지 않는다 — `seen_rss_links.article_id`가 `NOT NULL` FK라 기사 행이 만들어지기 전엔 "이미 봤다"는 상태를 영속화할 수 없기 때문이다. 코드 모듈(수집/파싱/LLM 판단/청킹/임베딩/저장)은 기능별로 나누되 실행 단위는 cron 1개로 둔다.
+
+## 알려진 피드 예외
+
+- **imaeil(매일신문)**: RSS `<pubDate>`가 시간대 표기 없는 KST 시각(`2026-10-23 19:15:48` 형식)으로 내려온다. 다른 피드는 RFC822(`+0900` 포함)라 문제없지만, 이 피드는 시간대가 없어 `feedparser`가 UTC로 간주해버려 실제보다 9시간 앞선 시각으로 파싱된다(`published_parsed`/`created_parsed`/`updated_parsed` 전부 영향받음). `rag/pipeline.py`의 `FEEDS_WITH_NAIVE_KST_PUBDATE`에 `feed_key`를 등록해, 해당 피드로 변환한 datetime에서 9시간을 빼는 예외 처리로 보정한다. 다른 피드에서 같은 증상이 발견되면 같은 집합에 추가한다.
+  - 2026-10-23에 이 버그로 이미 잘못 저장된 imaeil 999건(`articles.published_at`/`rss_created_at`/`rss_updated_at`, `article_chunks.published_at`)은 전부 9시간을 빼는 1회성 SQL로 보정했다(코드 수정 전 데이터).
 
 ## 지켜야 할 것
 

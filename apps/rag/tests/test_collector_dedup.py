@@ -35,6 +35,13 @@ def test_fetch_new_items_returns_all_when_nothing_seen(monkeypatch, db_conn, fee
     assert all(item.feed_key == TEST_FEED_KEY for item in items)
 
 
+def test_fetch_new_items_caps_at_max_items(monkeypatch, db_conn, feed, feeds_file):
+    monkeypatch.setattr(collector, "_fetch_entries", lambda url: _entries())
+    items = collector.fetch_new_items(db_conn, feed, feeds_file, max_items=3)
+    assert len(items) == 3
+    assert [item.rss_link for item in items] == [entry["link"] for entry in _entries()[:3]]
+
+
 def test_fetch_new_items_skips_seen_link(monkeypatch, db_conn, feed, feeds_file):
     monkeypatch.setattr(collector, "_fetch_entries", lambda url: _entries())
     first_link = _entries()[0]["link"]

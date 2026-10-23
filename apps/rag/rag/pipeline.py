@@ -6,13 +6,19 @@ import calendar
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from rag import chunker, collector, config, embedder, google_news, llm_judge, page_parser, regions, repository, wire_agencies
+from rag import chunker, collector, config, embedder, google_news, llm_judge, page_parser, regions, repository, usage, wire_agencies
 from rag.collector import CollectedItem
 from rag.config import FeedConfig, Settings
 
 log = logging.getLogger(__name__)
+
+# imaeil RSS의 <pubDate>는 시간대 표기가 없는 KST 시각인데, feedparser는 시간대가 없으면
+# UTC로 간주해버려서 실제보다 9시간 앞선 시각이 저장된다(2026-10-23 실데이터로 확인:
+# canonical_url의 발행시각 슬러그와 대조해 +9시간 오차를 검증함). 피드 자체를 고칠 수 없으니
+# 이 feed_key 에 대해서만 결과값에서 9시간을 빼는 예외 처리를 둔다.
+FEEDS_WITH_NAIVE_KST_PUBDATE = {"imaeil"}
 
 
 @dataclass
@@ -23,17 +29,20 @@ class RunResult:
     skipped_duplicate_canonical: int
 
 
-def _struct_to_datetime(struct: time.struct_time | None) -> datetime | None:
+def _struct_to_datetime(struct: time.struct_time | None, *, feed_key: str | None = None) -> datetime | None:
     if struct is None:
         return None
-    return datetime.fromtimestamp(calendar.timegm(struct), tz=timezone.utc)
+    dt = datetime.fromtimestamp(calendar.timegm(struct), tz=timezone.utc)
+    if feed_key in FEEDS_WITH_NAIVE_KST_PUBDATE:
+        dt -= timedelta(hours=9)
+    return dt
 
 
 def _resolve_published_at(item: CollectedItem) -> tuple[datetime, str]:
-    published = _struct_to_datetime(item.published_parsed)
+    published = _struct_to_datetime(item.published_parsed, feed_key=item.feed_key)
     if published is not None:
         return published, "rss_published"
-    created = _struct_to_datetime(item.created_parsed)
+    created = _struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
     if created is not None:
         return created, "rss_created"
     return datetime.now(timezone.utc), "collected"
@@ -42,6 +51,51 @@ def _resolve_published_at(item: CollectedItem) -> tuple[datetime, str]:
 def _region_label(sido: str | None, sigungu: str | None, emd: str | None) -> str:
     parts = [p for p in (sido, sigungu, emd) if p]
     return " ".join(parts) if parts else "전국"
+
+
+def _build_images_to_save(
+    parsed_images: list[page_parser.ParsedImage],
+    judgment_images: list[llm_judge.ImageJudgment],
+    thumbnail_url: str | None,
+    resolve_wire_agency_id,
+) -> list[repository.ImageToSave]:
+    """파싱된 이미지 목록과 LLM 판단을 합쳐 저장용 이미지 목록을 만든다.
+
+    본문에 썸네일과 같은 URL의 이미지가 중복으로 등장해도(예: jnilbo) is_thumbnail=True는
+    최초 1건에만 붙인다. 그렇지 않으면 article_images_one_thumbnail_idx 부분 유니크
+    인덱스를 위반해 기사 저장 전체가 실패한다.
+    """
+    judgment_by_index = {j.index: j for j in judgment_images}
+    images_to_save: list[repository.ImageToSave] = []
+    thumbnail_matched = False
+    for image in parsed_images:
+        image_judgment = judgment_by_index.get(image.position)
+        credit_raw = image_judgment.credit_raw if image_judgment else None
+        license_agency_id = resolve_wire_agency_id(image_judgment.wire_agency_name) if image_judgment else None
+        is_thumbnail = bool(thumbnail_url) and not thumbnail_matched and image.image_url == thumbnail_url
+        thumbnail_matched = thumbnail_matched or is_thumbnail
+        images_to_save.append(
+            repository.ImageToSave(
+                position=image.position,
+                image_url=image.image_url,
+                caption=image.caption,
+                credit_raw=credit_raw,
+                license_agency_id=license_agency_id,
+                is_thumbnail=is_thumbnail,
+            )
+        )
+    if thumbnail_url and not thumbnail_matched:
+        images_to_save.append(
+            repository.ImageToSave(
+                position=len(images_to_save),
+                image_url=thumbnail_url,
+                caption=None,
+                credit_raw=None,
+                license_agency_id=None,
+                is_thumbnail=True,
+            )
+        )
+    return images_to_save
 
 
 def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedItem) -> bool:
@@ -60,8 +114,8 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
         return False
 
     published_at, published_at_source = _resolve_published_at(item)
-    rss_created_at = _struct_to_datetime(item.created_parsed)
-    rss_updated_at = _struct_to_datetime(item.updated_parsed)
+    rss_created_at = _struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
+    rss_updated_at = _struct_to_datetime(item.updated_parsed, feed_key=item.feed_key)
 
     judgment = llm_judge.judge_article(
         title=parsed.title,
@@ -92,36 +146,12 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
     section_id = llm_judge.SECTION_CODE_TO_ID.get(judgment.section_code) if judgment.section_code else None
     wire_agency_id = wire_agencies.match_wire_agency(conn, judgment.wire_agency_name)
 
-    judgment_by_index = {j.index: j for j in judgment.images}
-    images_to_save: list[repository.ImageToSave] = []
-    thumbnail_matched = False
-    for image in parsed.images:
-        image_judgment = judgment_by_index.get(image.position)
-        credit_raw = image_judgment.credit_raw if image_judgment else None
-        license_agency_id = wire_agencies.match_wire_agency(conn, image_judgment.wire_agency_name) if image_judgment else None
-        is_thumbnail = bool(parsed.thumbnail_url) and image.image_url == parsed.thumbnail_url
-        thumbnail_matched = thumbnail_matched or is_thumbnail
-        images_to_save.append(
-            repository.ImageToSave(
-                position=image.position,
-                image_url=image.image_url,
-                caption=image.caption,
-                credit_raw=credit_raw,
-                license_agency_id=license_agency_id,
-                is_thumbnail=is_thumbnail,
-            )
-        )
-    if parsed.thumbnail_url and not thumbnail_matched:
-        images_to_save.append(
-            repository.ImageToSave(
-                position=len(images_to_save),
-                image_url=parsed.thumbnail_url,
-                caption=None,
-                credit_raw=None,
-                license_agency_id=None,
-                is_thumbnail=True,
-            )
-        )
+    images_to_save = _build_images_to_save(
+        parsed.images,
+        judgment.images,
+        parsed.thumbnail_url,
+        lambda name: wire_agencies.match_wire_agency(conn, name),
+    )
 
     region_label = _region_label(judgment.sido_name, judgment.sigungu_name, judgment.emd_name)
     chunks_raw = chunker.chunk_article(
@@ -139,6 +169,9 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
         model=settings.embedding_model,
         expected_dimensions=settings.embedding_dimensions,
     )
+    # 임베딩은 토큰 사용량을 API 응답에서 안 받아오므로, 보낸 텍스트의 Qwen3 토큰 수(이미 계산해둔
+    # chunk.token_count, embed_text 헤더만큼은 약간 과소추정)로 대신한다 — 비용 가늠용이라 근사치면 충분.
+    usage.record_embedding(sum(c.token_count for c in chunks_raw))
     chunks_to_save = [
         repository.ChunkToSave(
             chunk_index=c.chunk_index,
@@ -190,7 +223,7 @@ def run(feed_key: str) -> RunResult:
         password=settings.db_password,
     )
     try:
-        items = collector.fetch_new_items(conn, feed, feeds_file)
+        items = collector.fetch_new_items(conn, feed, feeds_file, max_items=settings.max_items_per_batch)
         processed = failed = skipped_duplicate = 0
         for item in items:
             try:
@@ -207,3 +240,16 @@ def run(feed_key: str) -> RunResult:
         )
     finally:
         conn.close()
+
+
+def run_all() -> dict[str, RunResult]:
+    """feeds.yaml 의 모든 feed_key 를 순회한다. 피드 하나가 실패해도 나머지는 계속 처리한다."""
+    feeds_file = config.load_feeds()
+    results: dict[str, RunResult] = {}
+    for feed_key in feeds_file.feeds:
+        try:
+            results[feed_key] = run(feed_key)
+        except Exception:
+            log.exception("피드 처리 실패: feed_key=%s", feed_key)
+            results[feed_key] = RunResult(total_new=0, processed=0, failed=1, skipped_duplicate_canonical=0)
+    return results
