@@ -10,11 +10,25 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from rag import chunker, collector, config, embedder, google_news, llm_judge, page_parser, regions, repository, usage, wire_agencies
+from rag import (
+    chunker,
+    collector,
+    config,
+    embedder,
+    google_news,
+    llm_judge,
+    logging_setup,
+    page_parser,
+    regions,
+    repository,
+    usage,
+    wire_agencies,
+)
 from rag.collector import CollectedItem
 from rag.config import FeedConfig, Settings
 
 log = logging.getLogger(__name__)
+summary_log = logging.getLogger(logging_setup.SUMMARY_LOGGER_NAME)
 
 # imaeil RSS의 <pubDate>는 시간대 표기가 없는 KST 시각인데, feedparser는 시간대가 없으면
 # UTC로 간주해버려서 실제보다 9시간 앞선 시각이 저장된다(2026-10-23 실데이터로 확인:
@@ -238,6 +252,14 @@ def run(feed_key: str) -> RunResult:
             except Exception:
                 log.exception("기사 처리 실패: feed_key=%s rss_link=%s", feed_key, item.rss_link)
                 failed += 1
+        summary_log.info(
+            "feed_key=%s 처리 완료 - 총=%d 성공=%d 실패=%d 중복=%d",
+            feed_key,
+            len(items),
+            processed,
+            failed,
+            skipped_duplicate,
+        )
         return RunResult(
             total_new=len(items), processed=processed, failed=failed, skipped_duplicate_canonical=skipped_duplicate
         )

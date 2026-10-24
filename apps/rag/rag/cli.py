@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 
-from rag import config, pipeline, pricing, usage
+from rag import config, logging_setup, pipeline, pricing, usage
 
 ALL_FEEDS = "ALL"
 
@@ -43,10 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", action="store_true", help="디버그 로그 출력")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
-    )
+    logging_setup.configure_logging(verbose=args.verbose)
 
     usage.reset()
     settings = config.load_settings()

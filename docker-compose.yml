@@ -32,6 +32,8 @@ services:
     environment:
       TZ: Asia/Seoul
       DB_HOST: db
+    volumes:
+      - ./apps/rag/logs:/app/logs
     depends_on:
       db:
         condition: service_healthy

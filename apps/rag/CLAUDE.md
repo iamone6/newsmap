@@ -19,6 +19,14 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 나중에 주기적으로 돌릴 때도 호스트 cron(또는 다른 스케줄러)이 이 `docker compose exec` 커맨드를 피드별로 호출하는 모양이 된다. 컨테이너 안에 자체 스케줄러를 넣는 방식은 아직 채택 안 했다.
 
+## 로그 파일
+
+`docker compose exec`로 돌리는 출력은 컨테이너 메인 프로세스 로그(`docker compose logs`)에도 안 잡히고 어디에도 영속화되지 않으므로, `rag/logging_setup.py`가 콘솔 출력과 별개로 파일 로그 2종을 설정한다. `docker-compose.yml`의 `rag` 서비스에 `./apps/rag/logs:/app/logs` 볼륨을 마운트해 호스트 `apps/rag/logs/`에서도 그대로 보인다(`.gitignore`의 `logs/`에 걸려 커밋 대상 아님).
+
+- `rag.log`: 매체(feed) 하나의 처리가 끝날 때마다 INFO로 `feed_key=... 처리 완료 - 총=N 성공=N 실패=N 중복=N` 한 줄을 남긴다. 일별 로테이션, 30일치 보관.
+- `rag_error.log`: 기사 처리 중 예외가 나면(기존 `log.exception("기사 처리 실패: feed_key=%s rss_link=%s", ...)` 호출을 그대로 재사용) 어느 매체·어느 기사·어떤 예외인지와 트레이스백을 남긴다. 월별 로테이션(1일 00:00 기준, `rag/logging_setup.py`의 `MonthlyRotatingFileHandler` — stdlib `TimedRotatingFileHandler`에 월 단위가 없어 `computeRollover()`만 다시 구현), 12개월치 보관.
+- `rag.log`은 전용 로거(`rag.summary`, `propagate=False`)로만 쌓여 콘솔과 중복 출력되지 않는다. `rag_error.log`는 `rag` 로거에 걸려 있어 기존처럼 콘솔에도 그대로 보인다.
+
 `--feed-key ALL`은 피드를 순차가 아니라 `MAX_CONCURRENT_FEEDS`(기본 4)개씩 스레드풀로 동시에 처리한다. 병목이 LLM/임베딩 API 호출 대기(네트워크 I/O)라 스레드로도 실제 동시성이 난다. DeepInfra 쪽 동시 요청 제한을 모르니 보수적인 기본값에서 시작했고, 로그에 429/rate-limit 에러가 안 보이면 `.env`의 `MAX_CONCURRENT_FEEDS`를 올려봐도 된다. 로그 포맷에 `[%(threadName)s]`를 넣어 어느 피드의 로그인지 구분할 수 있다.
 
 ## 작업 시작 전에 읽을 것
