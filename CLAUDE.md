@@ -15,6 +15,9 @@
 - **rag/**
     - 지역언론 RSS 수집 -> 전처리 및 메타데이터 추출, 행정동 단위 분류 -> 청킹 -> 임베딩 -> DB적재. 백엔드의 하이브리드 검색(BM25+Vector)및 지역별 기사 목록 출력을 위한 데이터 저장
     - Python/Langchain 기반
+- **dockerfiles/, docker-compose.yml**
+    - db·rag 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
+    - rag 이미지는 소스를 `COPY . .`로 굽기 때문에 코드나 `feeds.yaml`·`region_aliases.yaml`을 바꾸면 `--build`로 이미지를 다시 만들어야 반영된다.
 - **Database**
     -  PostgreSQL 18.6 + pgvector 0.8.6 + pg_search(ParadeDB) 0.25.11. 버전을 올릴 때는 `dockerfiles/db.dockerfile`의 `ARG`(pg_search sha256 포함)와 README 버전 표를 함께 고친다. pg_search는 `shared_preload_libraries` 등록이 필요해 `postgresql.conf.sample`을 수정하는 방식이므로, 이미 initdb된 데이터 디렉터리에는 반영되지 않는다.
     - 모든 시각은 `timestamptz(0)`, 시간대 `Asia/Seoul`. 보존 기간 1년, `articles` 삭제 시 하위 테이블은 `ON DELETE CASCADE`.
@@ -30,17 +33,22 @@
 
 ## 설계 문서의 위치와 우선순위
 - `README.md`: 운영 방법과 데이터 모델·청킹·검색 요약.
-- `prompts/<주제>.prompt.txt`: 원본 요구사항. `prompts/<주제>.decisions.md`: 그 요구사항에서 확정한 결정 사항과 남은 확인 사항. 설계 의도를 확인할 때는 decisions 문서를 먼저 본다.
+- `prompts/<주제>.prompt.txt`: 원본 요구사항. `prompts/<주제>.decisions.md`: 그 요구사항에서 확정한 결정 사항과 남은 확인 사항. 설계 의도를 확인할 때는 decisions 문서를 먼저 본다. `prompts/<주제>.research.md`: 조사 결과(예: 지역언론 RSS 피드 후보).
 - `contracts/schema.sql`: DB의 단일 진실 공급원. be/rag 양쪽이 이 스키마를 계약으로 공유한다. 스키마 변경시 be/rag 의 영향과 함께 이 파일도 점검한다.
 - `contracts/API.md`: fe ↔ be 사이 API 규칙(엔드포인트·요청·응답 형식)의 단일 진실 공급원. be는 이 문서대로 구현하고 fe는 이 문서를 기준으로 호출한다. API 변경시 fe/be 의 영향과 함께 이 파일도 점검한다. API 지역 코드는 2/5/10자리, DB는 10자리이며 변환은 be가 한다.
 
 ## 자주 쓰는 명령
 
-- (프로젝트 구성하면서 계속 업데이트 예정)
-
 ```bash
 # DB 이미지 빌드 + 기동 (apps/db/.env 필요, 호스트 /data/postgres 에 bind mount)
 docker compose up -d --build db
+
+# db + rag 함께 기동 (apps/rag/.env 필요. rag 는 상시 기동 상태로 대기)
+docker compose up -d --build
+
+# rag 수집~적재 실행. ALL 은 feeds.yaml 전체 피드를 병렬 처리 (상세는 apps/rag/CLAUDE.md)
+docker compose exec rag uv run python -m rag.cli --feed-key joongboo
+docker compose exec rag uv run python -m rag.cli --feed-key ALL
 
 # 스키마 적용 (최초 1회, 마이그레이션 도구 없음)
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < contracts/schema.sql
@@ -58,7 +66,7 @@ uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --r
 
 ## 아키텍처의 핵심
 
-**역할 분담**: 수집·크롤링·LLM 판단·청킹·임베딩은 `apps/rag`, 조회·검색은 `apps/be`. 
+**역할 분담**: 수집·크롤링·LLM 판단·청킹·임베딩은 `apps/rag`, 조회·검색은 `apps/be`, 사용자 계층(지도·기사 목록)은 `apps/fe`. rag↔be 경계는 `contracts/schema.sql`, fe↔be 경계는 `contracts/API.md`.
 
 
 <!-- BE CLAUDE.md 로 이동예정 -->
