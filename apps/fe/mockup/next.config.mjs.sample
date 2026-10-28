@@ -1,0 +1,11 @@
+// apps/fe/next.config.mjs — 기존 설정이 있으면 rewrites()만 병합하세요.
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  async rewrites() {
+    return [
+      // "/" 접속 시 public/newsmap/index.html 을 그대로 노출 (URL은 "/" 유지)
+      { source: '/', destination: '/newsmap/index.html' },
+    ];
+  },
+};
+export default nextConfig;

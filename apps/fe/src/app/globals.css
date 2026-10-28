@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/*
+ * 디자인 토큰 (원본: mockup/ds-styles.css "Organic" 디자인 시스템)
+ * @theme 안에 선언한 변수는 Tailwind 유틸리티 클래스로 바로 쓸 수 있다.
+ *   --color-accent      → bg-accent, text-accent, border-accent …
+ *   --color-ink         → text-ink (본문 글자색. 원본의 --color-text)
+ *   --shadow-md         → shadow-md
+ *   --font-heading      → font-heading
+ * 투명도는 "/숫자"로 붙인다. 예) bg-bg/92 = 배경색 92% 불투명
+ */
+@theme {
+  --color-bg: #f5ead8;
+  --color-surface: #ebddc5;
+  --color-ink: #201e1d;
+  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+
+  --color-accent: #c67139;
+  --color-accent-100: #fff2eb;
+  --color-accent-200: #ffe1d0;
+  --color-accent-300: #ffc6a5;
+  --color-accent-400: #f6a06b;
+  --color-accent-500: #d67f48;
+  --color-accent-600: #b2622d;
+  --color-accent-700: #8c491a;
+  --color-accent-800: #643312;
+  --color-accent-900: #402310;
+
+  --color-accent-2: #7a8a5e;
+  --color-accent-2-100: #f0fae1;
+  --color-accent-2-200: #e1eecc;
+  --color-accent-2-300: #ccdbb2;
+  --color-accent-2-400: #aebf92;
+  --color-accent-2-500: #8fa073;
+  --color-accent-2-600: #728157;
+  --color-accent-2-700: #56633f;
+  --color-accent-2-800: #3d472b;
+  --color-accent-2-900: #272e1b;
+
+  /* Tailwind 기본 neutral 팔레트를 디자인 시스템 값으로 덮어쓴다 */
+  --color-neutral-100: #f9f4ed;
+  --color-neutral-200: #eee7db;
+  --color-neutral-300: #dcd3c4;
+  --color-neutral-400: #c0b6a5;
+  --color-neutral-500: #a19786;
+  --color-neutral-600: #82796a;
+  --color-neutral-700: #645c50;
+  --color-neutral-800: #474238;
+  --color-neutral-900: #2e2b25;
+
+  /* 글꼴 변수(--font-caprasimo, --font-figtree)는 app/layout.tsx 의 next/font 가 만든다 */
+  --font-heading: var(--font-caprasimo), system-ui, sans-serif;
+  --font-body: var(--font-figtree), system-ui, sans-serif;
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+
+  /* 하단 티커가 왼쪽으로 흘러가는 애니메이션 → animate-ticker */
+  --animate-ticker: ticker-slide 62s linear infinite;
+  @keyframes ticker-slide {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* 이미지 톤을 차분하게 맞추는 필터 (원본 .washed) */
+.washed { filter: saturate(0.6) contrast(0.85) brightness(1.1) opacity(0.94); }
+
+/*
+ * 카카오맵 CustomOverlay 에 들어가는 라벨.
+ * 카카오 SDK 가 HTML 문자열로 넣기 때문에 Tailwind 대신 일반 CSS 클래스로 둔다.
+ */
+.map-label {
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+  text-shadow: 0 1px 3px var(--color-neutral-100), 0 0 6px var(--color-neutral-100);
+}
+.map-pill {
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  box-shadow: var(--shadow-md);
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.map-pill .count {
+  background: var(--color-bg);
+  color: var(--color-accent-800);
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

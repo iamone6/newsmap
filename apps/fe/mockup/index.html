@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NewsMap — 카카오맵 기반</title>
+<link rel="stylesheet" href="ds-styles.css">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{background:var(--color-bg)}
+  #app{position:relative;width:100%;height:100%;overflow:hidden}
+  #stage{position:absolute;inset:0;background:#dbe6ec}
+  #svgmap{width:100%;height:100%;display:block;cursor:grab}
+  #svgmap:active{cursor:grabbing}
+  #svgmap path.region{cursor:pointer}
+  #svgmap .sea{cursor:pointer}
+  #svgmap .isle{cursor:pointer}
+
+  /* chrome — 직상단, PC에서는 현황판 헤더 */
+  #chrome{
+    display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3);
+    padding-bottom:var(--space-3);
+    box-shadow:0 1px 0 color-mix(in srgb,var(--color-text) 10%,transparent);
+  }
+  #chrome{gap:8px;padding-bottom:8px}
+  .stat-block{gap:6px}
+  .statbox{padding:6px 8px}
+  .statbox .v{font-family:var(--font-body);font-size:16px;line-height:1;font-weight:700}
+  .statbox .k{font-size:9px;margin-top:1px}
+  .swatches{gap:1.5px}
+  .sw{height:8px}
+  .ends{font-size:9px;margin-top:4px}
+  .brand .b{color:var(--color-accent)}
+  .chrome-col{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);
+    position:relative;width:100%}
+  .who{font-size:12px;color:color-mix(in srgb,var(--color-text) 60%,transparent)}
+  .who b{color:var(--color-text);font-weight:700}
+  #cfgpop{
+    position:absolute;top:100%;left:0;margin-top:6px;width:210px;z-index:20;
+    background:var(--color-bg);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);
+    padding:6px;display:none;flex-direction:column;
+  }
+  #cfgpop.open{display:flex}
+  #cfgpop button{all:unset;cursor:pointer;font-family:var(--font-body);font-size:13px;
+    padding:9px 11px;border-radius:999px;display:flex;justify-content:space-between;gap:10px}
+  #cfgpop button:hover{background:color-mix(in srgb,var(--color-accent) 12%,transparent)}
+  #cfgpop .v{font-size:11px;color:color-mix(in srgb,var(--color-text) 50%,transparent)}
+
+  /* crumbs / level */
+  #crumbs{
+    position:absolute;top:var(--space-3);left:calc(var(--space-3) + 300px);z-index:700;
+    display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:52%;
+    padding:7px 9px;background:color-mix(in srgb,var(--color-bg) 92%,transparent);
+    backdrop-filter:blur(8px);border-radius:999px;box-shadow:var(--shadow-sm);
+  }
+  #crumbs:empty{display:none}
+  .crumb{all:unset;cursor:pointer;font-family:var(--font-body);font-size:12.5px;
+    padding:4px 11px;border-radius:999px;color:var(--color-text)}
+  .crumb:hover{background:color-mix(in srgb,var(--color-text) 8%,transparent)}
+  .crumb.cur{background:var(--color-accent);color:var(--color-bg)}
+  .crumb-sep{font-size:11px;opacity:.4}
+  #lvl{
+    position:absolute;bottom:56px;left:calc(var(--space-3) + 300px);z-index:700;
+    display:flex;align-items:center;gap:8px;padding:6px 10px;
+    background:color-mix(in srgb,var(--color-bg) 92%,transparent);border-radius:999px;
+    box-shadow:var(--shadow-sm);font-size:11.5px}
+  #lvl .dots{display:flex;gap:4px}
+  #lvl .dot{width:7px;height:7px;border-radius:999px;background:var(--color-neutral-300)}
+  #lvl .dot.on{background:var(--color-accent)}
+  #zoomctl{
+    position:absolute;bottom:56px;left:50%;transform:translateX(-50%);z-index:700;
+    display:flex;gap:6px;align-items:center;padding:5px 6px;border-radius:999px;
+    background:color-mix(in srgb,var(--color-bg) 92%,transparent);box-shadow:var(--shadow-sm)}
+  #engine{
+    position:absolute;bottom:56px;right:var(--space-3);z-index:700;
+    display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .pillnote{font-size:11px;padding:6px 13px;border-radius:999px;
+    background:color-mix(in srgb,var(--color-bg) 92%,transparent);box-shadow:var(--shadow-sm);
+    color:color-mix(in srgb,var(--color-text) 65%,transparent)}
+  #spin{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:760;
+    font-size:12px;padding:7px 16px;border-radius:999px;background:var(--color-text);
+    color:var(--color-bg);display:none}
+  #spin.on{display:block}
+
+  /* ── 좌측 요약 레일 ─────────────────────────────── */
+  #rail{
+    position:absolute;top:var(--space-3);left:var(--space-3);bottom:64px;z-index:700;width:160px;
+    display:flex;flex-direction:column;gap:8px;
+    padding:var(--space-4);overflow:auto;
+    background:color-mix(in srgb,var(--color-bg) 93%,transparent);backdrop-filter:blur(10px);
+    border-radius:calc(var(--radius-lg) * 1.15);box-shadow:var(--shadow-md);
+  }
+  #rail h5{margin:0;font-family:var(--font-heading);font-size:15px}
+  #rail .kicker{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)}
+  .bigstat{display:flex;align-items:baseline;gap:8px}
+  .bigstat .n{font-family:var(--font-body);font-size:32px;line-height:1;font-weight:700}
+  .bigstat .u{font-size:12px;color:color-mix(in srgb,var(--color-text) 55%,transparent)}
+  .statcol{display:flex;flex-direction:column;gap:var(--space-2);stat-block}
+  .statrow{display:flex;gap:var(--space-2)}
+  .statbox{flex:1;background:var(--color-surface);border-radius:var(--radius-md);padding:9px 11px}
+  .statbox .v{font-family:var(--font-body);font-weight:700;font-size:18px;line-height:1.1}
+  .statbox .k{font-size:10.5px;color:color-mix(in srgb,var(--color-text) 55%,transparent);margin-top:2px}
+  .rankrow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;
+    font-size:12px;padding:3px 0;cursor:pointer;border-radius:999px}
+  .rankrow:hover{background:color-mix(in srgb,var(--color-accent) 10%,transparent)}
+  .rankrow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rankrow .bar{height:7px;border-radius:999px;background:var(--color-neutral-200);overflow:hidden}
+  .rankrow .bar i{display:block;height:100%;border-radius:999px;background:var(--color-accent-400)}
+  .rankrow .c{font-size:11px;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--color-text) 60%,transparent)}
+  .catbars{display:flex;flex-direction:column;gap:5px}
+  .catbar{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;font-size:11.5px}
+  .catbar .bar{height:7px;border-radius:999px;background:var(--color-neutral-200);overflow:hidden}
+  .catbar .bar i{display:block;height:100%;border-radius:999px;background:var(--color-accent-2-500)}
+  .legend{display:flex;flex-direction:column;gap:6px}
+  .legend .swatches{display:flex;gap:3px}
+  .legend .sw{flex:1;height:9px;border-radius:999px}
+  .legend .ends{display:flex;justify-content:space-between;font-size:10px;
+    color:color-mix(in srgb,var(--color-text) 55%,transparent)}
+
+  /* ── 하단 최신 게시물 티커 ─────────────────────── */
+  #ticker{
+    position:absolute;left:0;right:0;bottom:0;height:44px;z-index:690;display:flex;align-items:center;
+    gap:var(--space-3);padding-left:calc(var(--space-4) + 300px);overflow:hidden;
+    background:color-mix(in srgb,var(--color-bg) 94%,transparent);backdrop-filter:blur(8px);
+    box-shadow:0 -1px 0 color-mix(in srgb,var(--color-text) 8%,transparent)
+  }
+  #ticker .lab{flex:none;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--color-bg);background:var(--color-accent);padding:5px 11px;border-radius:999px}
+  #ticker .track{display:flex;gap:var(--space-6);white-space:nowrap;animation:slide 62s linear infinite}
+  #ticker .win{flex:1;overflow:hidden}
+  #ticker:hover .track{animation-play-state:paused}
+  #ticker .it{font-size:12px;display:flex;align-items:center;gap:8px;cursor:pointer}
+  #ticker .it b{font-weight:700}
+  #ticker .it span{color:color-mix(in srgb,var(--color-text) 50%,transparent);font-size:11px}
+  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+  /* ── 지도 호버 툴팁 ─────────────────────────────── */
+  #tip{
+    position:absolute;z-index:770;pointer-events:none;opacity:0;transition:opacity .12s;
+    padding:9px 12px;border-radius:var(--radius-md);background:var(--color-text);color:var(--color-bg);
+    box-shadow:var(--shadow-lg);max-width:230px
+  }
+  #tip.on{opacity:1}
+  #tip .t{font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px}
+  #tip .t em{font-style:normal;background:var(--color-accent);border-radius:999px;padding:1px 7px;font-size:11px}
+  #tip .s{font-size:11px;opacity:.75;margin-top:4px;white-space:normal}
+
+  /* list layer */
+  #layer{
+    position:absolute;z-index:750;top:150px;right:var(--space-3);bottom:56px;
+    width:400px;display:flex;flex-direction:column;background:var(--color-bg);
+    border-radius:calc(var(--radius-lg) * 1.15);box-shadow:var(--shadow-lg);overflow:hidden;
+    transform:translateX(calc(100% + 28px));opacity:0;pointer-events:none;
+    transition:transform .34s cubic-bezier(.22,.7,.25,1),opacity .2s}
+  #layer.open{transform:none;opacity:1;pointer-events:auto}
+  .lhead{padding:var(--space-4) var(--space-4) var(--space-3)}
+  .lhead-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .lhead h4{margin:0;font-size:22px}
+  .lsub{font-size:11.5px;color:color-mix(in srgb,var(--color-text) 55%,transparent);margin-top:3px}
+  .tools{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-3)}
+  .tools-row{display:flex;gap:var(--space-2)}
+  .tools .input{min-height:32px;font-size:12.5px}
+  .cats{display:none}
+  .cat{all:unset;cursor:pointer;font-family:var(--font-body);font-size:11px;padding:4px 11px;
+    border-radius:999px;background:var(--color-neutral-200);color:var(--color-neutral-800)}
+  .cat:hover{background:var(--color-neutral-300)}
+  .cat.on{background:var(--color-accent);color:var(--color-bg)}
+  .sortsel{all:unset;cursor:pointer;font-family:var(--font-body);font-size:12px;flex:none;
+    padding:6px 12px;border-radius:999px;background:var(--color-surface)}
+  .countbar{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:8px var(--space-4);font-size:11.5px;background:var(--color-surface);
+    color:color-mix(in srgb,var(--color-text) 65%,transparent)}
+  .countbar b{color:var(--color-text)}
+  .plist{flex:1;overflow:auto;padding:var(--space-2) 0}
+  .post{display:flex;gap:var(--space-3);align-items:flex-start;padding:var(--space-3) var(--space-4);cursor:pointer}
+  .post + .post{border-top:1px solid color-mix(in srgb,var(--color-text) 8%,transparent)}
+  .post:hover{background:color-mix(in srgb,var(--color-accent) 8%,transparent)}
+  .thumb{flex:none;width:40%;max-width:40%;border-radius:var(--radius-md);overflow:hidden;background:var(--color-neutral-200)}
+  .thumb img{width:100%;height:auto}
+  .pbody{flex:1;min-width:0}
+  .pbody h5{margin:0;font-family:var(--font-body);font-weight:700;font-size:13.5px;line-height:1.4;text-wrap:pretty}
+  .pmeta{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:10.5px;
+    color:color-mix(in srgb,var(--color-text) 50%,transparent)}
+  .pexc{margin:7px 0 0;font-size:12px;line-height:1.5;opacity:.75;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pager{display:flex;align-items:center;justify-content:center;gap:5px;padding:var(--space-3)}
+  .pg{all:unset;cursor:pointer;font-family:var(--font-body);font-size:12px;min-width:28px;height:28px;
+    border-radius:999px;display:flex;align-items:center;justify-content:center}
+  .pg:hover{background:color-mix(in srgb,var(--color-text) 8%,transparent)}
+  .pg.on{background:var(--color-text);color:var(--color-bg)}
+  .pg:disabled{opacity:.3;cursor:not-allowed}
+  .empty{padding:var(--space-8) var(--space-4);text-align:center;font-size:13px;
+    color:color-mix(in srgb,var(--color-text) 55%,transparent)}
+  .detail{position:absolute;inset:0;background:var(--color-bg);display:flex;flex-direction:column;
+    transform:translateX(100%);transition:transform .3s cubic-bezier(.22,.7,.25,1)}
+  .detail.open{transform:none}
+  .detail .dtop{padding:var(--space-3) var(--space-4);display:flex;align-items:center;gap:10px}
+  .detail .dscroll{overflow:auto;padding:0 var(--space-4) var(--space-6)}
+  .detail h4{margin:var(--space-2) 0;font-size:22px;line-height:1.15}
+  .detail .dimg{border-radius:var(--radius-md);overflow:hidden;margin-bottom:var(--space-3)}
+  .detail p{font-size:13.5px;line-height:1.65;opacity:.85}
+
+  /* kakao key dialog */
+  #keydlg{position:absolute;inset:0;z-index:900;display:none;place-items:center;
+    background:color-mix(in srgb,var(--color-neutral-900) 45%,transparent);padding:var(--space-4)}
+  #keydlg.open{display:grid}
+  #keydlg .dialog{width:min(460px,100%)}
+  #keydlg code{font-size:11.5px;background:var(--color-neutral-200);padding:2px 6px;border-radius:6px}
+
+  /* map labels shared with kakao overlays */
+  .rlabel{transform:translate(-50%,-50%);white-space:nowrap;pointer-events:none;font-size:11.5px;
+    font-weight:600;color:var(--color-neutral-900);
+    text-shadow:0 1px 3px var(--color-neutral-100),0 0 6px var(--color-neutral-100)}
+  .rpill{transform:translate(-50%,-50%);display:flex;align-items:center;gap:7px;
+    padding:5px 6px 5px 12px;border-radius:999px;background:var(--color-accent);color:var(--color-bg);
+    box-shadow:var(--shadow-md);white-space:nowrap;font-size:12.5px;font-weight:600;pointer-events:none}
+  .rpill .n{background:var(--color-bg);color:var(--color-accent-800);border-radius:999px;min-width:22px;
+    height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-variant-numeric:tabular-nums}
+
+  @media (max-width:760px){
+    #rail{width:160px;max-width:66vw;padding:9px 10px 10px;overflow:visible;z-index:800}
+    #rail .stat-block{display:none}
+    #chrome{padding-bottom:0;box-shadow:none;gap:10px}
+    #ticker{display:none}
+    .brand{font-size:19px}
+    #crumbs{max-width:70%;top:78px;left:10px}
+    #lvl{bottom:var(--space-3);left:var(--space-3)}
+    /* 목록은 지도를 10% 남기고 사이드인 */
+    #layer{top:0;right:0;bottom:0;left:10%;width:90%;z-index:850;
+      border-radius:calc(var(--radius-lg) * 1.15) 0 0 calc(var(--radius-lg) * 1.15);
+      transform:translateX(100%)}
+    .pexc{display:none}
+    #engine,#zoomctl{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"></div>
+
+  <div id="crumbs"></div>
+  <div id="lvl"></div>
+  <div id="zoomctl">
+    <button class="btn btn-secondary btn-icon" id="zin">＋</button>
+    <button class="btn btn-secondary btn-icon" id="zout">－</button>
+    <button class="btn btn-ghost" id="zreset">전국</button>
+  </div>
+  <div id="engine">
+    <span class="pillnote" id="enginenote">폴리곤 모드 (카카오 타일 없음)</span>
+    <button class="btn btn-secondary" id="kakaobtn">카카오맵으로 보기</button>
+  </div>
+  <div id="spin">읍면동 경계 불러오는 중…</div>
+
+  <aside id="rail">
+    <div id="chrome">
+      <div class="brand">News<span class="b">Map</span></div>
+      <div class="chrome-col">
+        <div class="who">signed in as <b>Guest</b></div>
+        <button class="btn btn-secondary btn-icon" id="cfg" aria-label="설정" title="설정">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+        <div id="cfgpop">
+          <button>로그인 <span class="v">Guest</span></button>
+          <button>내 관심 지역 <span class="v">3곳</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="stat-block">
+      <div class="kicker">전국 현황</div>
+      <div class="bigstat"><span class="n" id="s-total" style="font-size:22px">—</span><span class="u" style="font-size:10px">건</span></div>
+    </div>
+    <div class="statcol">
+      <div class="statbox"><div class="v" id="s-today">—</div><div class="k">오늘 등록</div></div>
+      <div class="statbox"><div class="v" id="s-regions">—</div><div class="k">활성 지역</div></div>
+    </div>
+    <div class="legend stat-block">
+      <h5 style="margin:0 0 8px 0;font-size:12px">지역 색 = 게시물 수</h5>
+      <div class="swatches" id="s-legend" style="gap:2px"></div>
+      <div class="ends" style="margin-top:4px;font-size:9px"><span>적음</span><span>많음</span></div>
+    </div>
+  </aside>
+
+  <div id="ticker"><span class="lab">방금 등록</span><div class="win"><div class="track" id="tick-track"></div></div></div>
+  <div id="tip"></div>
+
+  <section id="layer">
+    <div class="lhead">
+      <div class="lhead-top">
+        <div><h4 id="ltitle">지역</h4><div class="lsub" id="lsub"></div></div>
+        <button class="btn btn-secondary btn-icon" id="lclose" aria-label="닫기">✕</button>
+      </div>
+      <div class="tools">
+        <div class="tools-row">
+          <input class="input" id="lq" type="search" placeholder="이 지역 게시물 검색">
+          <select class="sortsel" id="lsort"><option value="new">최신순</option><option value="hot">인기순</option></select>
+        </div>
+        <div class="cats" id="lcats"></div>
+      </div>
+    </div>
+    <div class="countbar"><span id="lcount"></span><span id="lpage"></span></div>
+    <div class="plist" id="llist"></div>
+    <div class="pager" id="lpager"></div>
+    <div class="detail" id="ldetail">
+      <div class="dtop"><button class="btn btn-secondary" id="lback">← 목록</button><span class="tag tag-accent-2" id="ldcat"></span></div>
+      <div class="dscroll"><h4 id="ldtitle"></h4>
+        <div class="lsub" id="lddate" style="margin-bottom:12px"></div>
+        <div class="dimg washed"><img id="ldimg" alt=""></div>
+        <p id="ldbody"></p><p id="ldbody2"></p></div>
+    </div>
+  </section>
+
+  <div id="keydlg">
+    <div class="dialog">
+      <div class="dialog-title">카카오맵 JavaScript 키</div>
+      <div class="dialog-body">
+        <p>카카오 지도 SDK는 앱키와 <b>등록된 사이트 도메인</b>이 필요합니다. Kakao Developers → 내 애플리케이션 → 앱 키의 <code>JavaScript 키</code>를 넣고, 플랫폼 &gt; Web에 이 미리보기 도메인을 등록해 주세요.</p>
+        <div class="field"><label for="keyin">JavaScript 키</label>
+          <input class="input" id="keyin" placeholder="예: 0123456789abcdef…" autocomplete="off"></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" id="keycancel">취소</button>
+        <button class="btn btn-primary" id="keyok">적용</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══ 1. 지리 데이터 ═════════════════════════════════════════════════ */
+const SRC = "https://cdn.jsdelivr.net/gh/southkorea/southkorea-maps@master/kostat/2018/json/";
+const FILES = {
+  prov: ["skorea-provinces-2018-topo.json","skorea_provinces_2018_geo"],
+  muni: ["skorea-municipalities-2018-topo.json","skorea_municipalities_2018_geo"],
+  sub:  ["skorea-submunicipalities-2018-topo.json","skorea_submunicipalities_2018_geo"]
+};
+const PROV_KEY = {11:"서울",21:"부산",22:"대구",23:"인천",24:"광주",25:"대전",26:"울산",29:"세종",
+  31:"경기",32:"강원",33:"충청북",34:"충청남",35:"전라북",36:"전라남",37:"경상북",38:"경상남",39:"제주"};
+const cache = {};
+async function level(key){
+  if (cache[key]) return cache[key];
+  cache[key] = (async()=>{
+    const [file,obj] = FILES[key];
+    const topo = await (await fetch(SRC+file)).json();
+    const fc = topojson.feature(topo, topo.objects[obj]);
+    fc.features.forEach((f,i)=>{
+      f.id = key+"-"+i; f.props = f.properties;
+      f.center = d3.geoCentroid(f); f.bb = d3.geoBounds(f);
+      f.kind = "admin"; f.lvl = key;
+    });
+    if (key === "prov") cache.provTopo = topo;
+    return fc.features;
+  })();
+  return cache[key];
+}
+const provOf = f => String(f.props.code).slice(0,2);
+const muniKey = f => String(f.props.code).slice(0,4);
+const provCodeOfName = n => { for (const [c,k] of Object.entries(PROV_KEY)) if (n.startsWith(k)) return c; return null; };
+
+/* 바다 — 행정경계가 없는 개념적 영역이므로 굵은 근사 폴리곤으로 정의 */
+function poly(name, coords, kind, labelAt){
+  const f = { type:"Feature", properties:{ name }, geometry:{ type:"Polygon", coordinates:[coords] } };
+  if (d3.geoArea(f) > 1) f.geometry.coordinates[0] = coords.slice().reverse();  // 링 방향 보정
+  f.id = kind+"-"+name; f.props = f.properties; f.kind = kind; f.lvl = "prov";
+  f.center = labelAt || d3.geoCentroid(f); f.bb = d3.geoBounds(f);
+  return f;
+}
+/* 바다 웨지는 망을 넓게 쟡고(우상 순서상 망이 상위) 대륙은 그 위에 그려 자연하게 쟘리게 한다 */
+const SEAS = [
+  poly("서해", [[123.20,38.70],[126.60,38.20],[126.95,36.00],[126.60,34.40],[125.40,33.60],
+    [123.40,34.60],[123.20,38.70]], "sea", [124.55,36.40]),
+  poly("남해", [[125.60,34.95],[127.60,34.95],[129.60,34.95],[129.95,32.95],[127.00,32.90],
+    [125.60,33.40],[125.60,34.95]], "sea", [128.35,33.35]),
+  poly("동해", [[129.20,38.75],[132.20,38.75],[132.20,35.00],[129.90,34.90],[129.20,36.40],
+    [129.20,38.75]], "sea", [131.00,36.70])
+];
+/* 개별 클릭이 필요한 섬 (독도·울릉도는 경계 폴리곤이 화면에서 너무 작음) */
+const ISLES = [
+  { name:"울릉도", center:[130.865,37.500], r:9 },
+  { name:"독도",   center:[131.869,37.241], r:7 }
+];
+const KOREA = { lng:[123.3,132.2], lat:[32.9,38.75] };   // 이 범위를 벗어나 볼 수 없음
+
+/* ═══ 2. 목 데이터 ═══════════════════════════════════════════════════ */
+const CATS = ["행정","사건","생활","문화","경제"];
+const HEAD = ["재개발 구역 지정 절차, 주민 의견 청취 단계로","폭우 대비 배수시설 점검 마무리",
+  "청년 창업 지원금 신청 이달 말까지","도시철도 연장 기본계획 용역 결과 공개",
+  "전통시장 야간 개장 시범 운영 한 달","공공 도서관 주말 운영 시간 확대",
+  "농수산물 직거래 장터 이번 주말 개장","노후 상수관 교체 공사 통행 안내",
+  "관광 활성화 협약 체결, 숙박 할인 연계","미세먼지 저감 조례 개정안 통과",
+  "청사 이전 부지 공청회 열려","학교 급식 지역 농가 비중 확대",
+  "버스 노선 개편안 확정 다음 달 시행","하천 산책로 야간 조명 설치 완료"];
+const SEA_HEAD = ["해상 풍랑주의보, 여객선 운항 일부 통제","불법 조업 단속 강화 계획 발표",
+  "해양 쓰레기 수거 사업 상반기 실적","해상 풍력 입지 조사 착수","적조 예비주의보 발령",
+  "해양 보호구역 관리 계획 공청회","항로 준설 공사 안전 안내"];
+const BODY = "관계 부처와 지자체는 이번 결정으로 생활권 전반에 영향이 있을 것으로 보고, 후속 절차와 일정 조정에 대한 세부 계획을 이달 안에 공개하기로 했다. 현장에서는 기대와 우려가 함께 나온다. 주민 설명회는 이달 셋째 주에 두 차례 더 열린다.";
+const ASPECTS = [[1600,900],[1600,900],[2000,1000],[1400,933],[1600,900],[1200,1500],[1000,2400],[1600,700],[900,1600]];
+const hash = s => { let h=2166136261; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);} return h>>>0; };
+const rngOf = seed => { let s=seed>>>0||1; return ()=>((s=(Math.imul(s,1103515245)+12345)>>>0)/4294967296); };
+const postCache = {};
+function postsFor(name, kind){
+  if (postCache[name]) return postCache[name];
+  const r = rngOf(hash(name));
+  const pool = kind === "sea" ? SEA_HEAD : HEAD;
+  const n = kind === "sea" ? 4+Math.floor(r()*7) : 3+Math.floor(r()*16);
+  const arr = Array.from({length:n},()=>{
+    const [w,h] = ASPECTS[Math.floor(r()*ASPECTS.length)];
+    const d = new Date(2026, 6+Math.floor(r()*2), 1+Math.floor(r()*30), 7+Math.floor(r()*13), Math.floor(r()*60));
+    return { title:pool[Math.floor(r()*pool.length)], cat:CATS[Math.floor(r()*CATS.length)],
+      date:d, views:120+Math.floor(r()*9800), w, h, body:BODY };
+  }).sort((a,b)=>b.date-a.date);
+  return (postCache[name]=arr);
+}
+const countFor = (name, kind) => postsFor(name, kind).length;
+const fmtDate = d => `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+function ph(w,h){
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <defs><pattern id="p" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="12" height="12" fill="#ebddc5"/><rect width="5" height="12" fill="#dcd3c4"/></pattern></defs>
+    <rect width="${w}" height="${h}" fill="url(#p)"/>
+    <text x="${w/2}" y="${h/2}" fill="#82796a" font-family="monospace" text-anchor="middle"
+      dominant-baseline="middle" font-size="${Math.max(30,Math.min(w,h)*0.1)}">${w}×${h}</text></svg>`;
+  return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+
+/* ═══ 3. 목록 레이어 ═════════════════════════════════════════════════ */
+const PER = 5;
+const $ = s => document.querySelector(s);
+const listState = { region:null, kind:"admin", cat:null, sort:"new", query:"", page:1 };
+$("#lcats").innerHTML = ["전체",...CATS].map(c=>`<button class="cat${c==="전체"?" on":""}" data-cat="${c}">${c}</button>`).join("");
+$("#lcats").addEventListener("click", e=>{
+  const b = e.target.closest(".cat"); if(!b) return;
+  listState.cat = b.dataset.cat === "전체" ? null : b.dataset.cat; listState.page = 1;
+  $("#lcats").querySelectorAll(".cat").forEach(x=>x.classList.toggle("on", x===b));
+  renderList();
+});
+$("#lq").addEventListener("input", e=>{ listState.query = e.target.value.trim(); listState.page=1; renderList(); });
+$("#lsort").addEventListener("change", e=>{ listState.sort = e.target.value; listState.page=1; renderList(); });
+$("#lclose").addEventListener("click", closeLayer);
+$("#lback").addEventListener("click", ()=>$("#ldetail").classList.remove("open"));
+
+function filteredPosts(){
+  let list = listState.region ? postsFor(listState.region, listState.kind).slice() : [];
+  if (listState.cat) list = list.filter(p=>p.cat===listState.cat);
+  if (listState.query) list = list.filter(p=>p.title.includes(listState.query));
+  list.sort(listState.sort==="hot" ? (a,b)=>b.views-a.views : (a,b)=>b.date-a.date);
+  return list;
+}
+function renderList(){
+  const list = filteredPosts();
+  const pages = Math.max(1, Math.ceil(list.length/PER));
+  if (listState.page > pages) listState.page = pages;
+  const slice = list.slice((listState.page-1)*PER, listState.page*PER);
+  $("#lcount").innerHTML = `게시물 <b>${list.length}</b>건${listState.cat?` · ${listState.cat}`:""}${listState.query?` · "${listState.query}"`:""}`;
+  $("#lpage").textContent = `${listState.page} / ${pages}`;
+  $("#llist").innerHTML = slice.length ? slice.map((p,i)=>{
+    const ratio = p.h/p.w;
+    const w = ratio > 2 ? (40*2/ratio) : 40;    /* 40% 기준, 1:2 초과 시 전체 축소 */
+    return `<article class="post" data-i="${(listState.page-1)*PER+i}">
+      <div class="thumb washed" style="width:${w.toFixed(1)}%;max-width:${w.toFixed(1)}%">
+        <img src="${ph(p.w,p.h)}" alt="" loading="lazy"></div>
+      <div class="pbody"><h5>${p.title}</h5>
+        <div class="pmeta"><span class="tag tag-neutral">${p.cat}</span><span>${fmtDate(p.date)}</span></div>
+        <p class="pexc">${p.body}</p></div></article>`;
+  }).join("") : `<div class="empty">조건에 맞는 게시물이 없습니다.</div>`;
+  $("#llist").onclick = e => {
+    const a = e.target.closest(".post"); if(!a) return;
+    const p = list[+a.dataset.i]; if(!p) return;
+    $("#ldtitle").textContent = p.title;
+    $("#lddate").textContent = `${fmtDate(p.date)} · 조회 ${p.views.toLocaleString()}`;
+    $("#ldcat").textContent = p.cat;
+    $("#ldimg").src = ph(p.w,p.h);
+    $("#ldbody").textContent = p.body; $("#ldbody2").textContent = p.body;
+    $("#ldetail").classList.add("open");
+    $("#ldetail .dscroll").scrollTop = 0;
+  };
+  const btns = [`<button class="pg" data-p="${listState.page-1}" ${listState.page===1?"disabled":""}>←</button>`];
+  for (let i=1;i<=pages;i++) btns.push(`<button class="pg${i===listState.page?" on":""}" data-p="${i}">${i}</button>`);
+  btns.push(`<button class="pg" data-p="${listState.page+1}" ${listState.page===pages?"disabled":""}>→</button>`);
+  $("#lpager").innerHTML = btns.join("");
+  $("#lpager").onclick = e => {
+    const b = e.target.closest(".pg"); if(!b||b.disabled) return;
+    listState.page = Math.min(pages, Math.max(1, +b.dataset.p)); renderList(); $("#llist").scrollTop = 0;
+  };
+  $("#llist").scrollTop = 0;
+}
+function openLayer(feature, path){
+  listState.region = feature.props.name;
+  listState.kind = feature.kind === "admin" ? "admin" : "sea";
+  listState.page = 1;
+  $("#ltitle").textContent = feature.props.name;
+  $("#lsub").textContent = path.join("  ›  ");
+  $("#lsub").style.display = path.length ? "" : "none";
+  $("#ldetail").classList.remove("open");
+  renderList();
+  $("#layer").classList.add("open");
+}
+function closeLayer(){
+  $("#layer").classList.remove("open");
+  $("#ldetail").classList.remove("open");
+  engine && engine.clearSelection();
+}
+
+/* ═══ 4. 크롬 ════════════════════════════════════════════════════════ */
+$("#cfg").addEventListener("click", e=>{ e.stopPropagation(); $("#cfgpop").classList.toggle("open"); });
+document.addEventListener("click", e=>{ if(!$("#cfgpop").contains(e.target)) $("#cfgpop").classList.remove("open"); });
+const LEVELS = ["시 · 도","시 · 군 · 구","읍 · 면 · 동"];
+function setLevelChip(i){
+  $("#lvl").innerHTML = `<span class="dots">${LEVELS.map((_,k)=>`<span class="dot${k<=i?" on":""}"></span>`).join("")}</span><span>${LEVELS[i]}</span>`;
+}
+function setCrumbs(items){
+  const el = $("#crumbs"); el.innerHTML = "";
+  items.forEach((it,i)=>{
+    if (i){ const s=document.createElement("span"); s.className="crumb-sep"; s.textContent="›"; el.appendChild(s); }
+    const b=document.createElement("button");
+    b.className = "crumb"+(i===items.length-1?" cur":"");
+    b.textContent = it.label;
+    if (it.onClick) b.addEventListener("click", it.onClick);
+    el.appendChild(b);
+  });
+}
+async function pathFor(f){
+  const path = [];
+  if (f.kind === "sea") return ["해역"];
+  if (f.kind === "isle") return ["도서"];
+  if (f.lvl === "muni" || f.lvl === "sub") {
+    const pv = (await level("prov")).find(p => provCodeOfName(p.props.name) === provOf(f));
+    if (pv) path.push(pv.props.name);
+  }
+  if (f.lvl === "sub") {
+    const mu = (await level("muni")).find(m => muniKey(m) === muniKey(f));
+    if (mu) path.push(mu.props.name);
+  }
+  return path;
+}
+
+/* ═══ 5. SVG(폴리곤) 엔진 ═══════════════════════════════════════════ */
+const C = { land:"#ccdbb2", landHi:"#aebf92", sel:"#c67139", selStroke:"#8c491a",
+  sea:"#dbe6ec", seaHi:"#c4d6e0", stroke:"#f9f4ed", landStroke:"#5f6f46", ink:"#2e2b25", bg:"#f5ead8" };
+const RAMP = ["#eef5e0","#e1eecc","#ccdbb2","#aebf92","#8fa073","#728157"];
+const rampFor = n => RAMP[Math.max(0, Math.min(RAMP.length-1, Math.floor((n-2)/3)))];
+let engine = null;
+
+/* 경계선 굵기: 시도 1 → 시군구 0.5 → 읍면동 0.25 */
+const LINE_W = { prov:1, muni:0.5, sub:0.125 };
+const SEL_W  = { prov:2.6, muni:1.4, sub:0.8 };
+
+/* ── 좌측 레일 / 티커 / 툴팁 ─────────────────────────────── */
+function fillRail(provs){
+  const all = [...provs.map(f=>({ name:f.props.name, kind:"admin" })),
+               ...SEAS.map(f=>({ name:f.props.name, kind:"sea" })),
+               ...ISLES.map(d=>({ name:d.name, kind:"isle" }))];
+  const rows = all.map(r=>({ ...r, posts:postsFor(r.name, r.kind) }));
+  const total = rows.reduce((s,r)=>s+r.posts.length, 0);
+  const newest = rows.flatMap(r=>r.posts.map(p=>({ ...p, region:r.name })))
+    .sort((a,b)=>b.date-a.date);
+  const cutoff = newest[0].date - 3*864e5;
+  $("#s-total").textContent = total.toLocaleString();
+  $("#s-today").textContent = newest.filter(p=>p.date >= cutoff).length;
+  $("#s-regions").textContent = rows.length;
+
+  $("#s-legend").innerHTML = RAMP.map(c=>`<span class="sw" style="background:${c}"></span>`).join("");
+
+  const items = newest.slice(0,16).map(p=>`<span class="it" data-name="${p.region}">
+    <b>${p.region}</b> ${p.title} <span>${fmtDate(p.date)}</span></span>`).join("");
+  $("#tick-track").innerHTML = items + items;
+  $("#tick-track").onclick = e => {
+    const it = e.target.closest(".it");
+    if (it && engine && engine.selectByName) engine.selectByName(it.dataset.name);
+  };
+}
+function showTip(x, y, f){
+  const posts = postsFor(f.props.name, f.kind);
+  const tip = $("#tip");
+  tip.innerHTML = `<div class="t">${f.props.name}<em>${posts.length}</em></div>
+    <div class="s">최신 · ${posts[0].title}</div>`;
+  tip.classList.add("on");
+  const bw = 240, bh = 64;
+  tip.style.left = Math.min(window.innerWidth-bw-12, x+14) + "px";
+  tip.style.top  = Math.max(8, y-bh-8) + "px";
+}
+const hideTip = () => $("#tip").classList.remove("on");
+
+async function svgEngine(){
+  const stage = $("#stage");
+  stage.innerHTML = "";
+  const w = stage.clientWidth, h = stage.clientHeight;
+  const svg = d3.select(stage).append("svg").attr("id","svgmap").attr("viewBox",`0 0 ${w} ${h}`);
+  const root = svg.append("g");
+  const gSea = root.append("g"), gLand = root.append("g"), gIsle = root.append("g"), gLab = root.append("g");
+  const provs = await level("prov");
+  const proj = d3.geoMercator();
+  const pad = 34, panelW = 0, railW = window.innerWidth > 760 ? 160 : 0;
+  proj.fitExtent([[pad+railW,pad+8],[w-(railW?196:pad),h-pad-56]],
+    { type:"FeatureCollection", features:[
+      ...provs.map(f=>({type:"Feature",geometry:{type:"Point",coordinates:[f.bb[0][0],f.bb[0][1]]}})),
+      ...provs.map(f=>({type:"Feature",geometry:{type:"Point",coordinates:[f.bb[1][0],f.bb[1][1]]}})),
+      ...SEAS.map(f=>({type:"Feature",geometry:{type:"Point",coordinates:[f.bb[0][0],f.bb[0][1]]}})),
+      ...SEAS.map(f=>({type:"Feature",geometry:{type:"Point",coordinates:[f.bb[1][0],f.bb[1][1]]}}))
+    ] });
+  const path = d3.geoPath(proj);
+  const base = { k:1, x:0, y:0 };
+  let cur = "prov", sel = null, tk = 1;
+
+  const zoom = d3.zoom().scaleExtent([1, 26])
+    .translateExtent([[0,0],[w,h]])
+    .on("zoom", ev=>{
+      root.attr("transform", ev.transform);
+      root.attr("stroke-width", 1/ev.transform.k);
+      tk = ev.transform.k;
+      onZoom();
+    });
+  svg.call(zoom);
+
+  const levelForK = k => k < 2.4 ? "prov" : k < 7 ? "muni" : "sub";
+  let pending = null;
+  function onZoom(){
+    const want = levelForK(tk);
+    if (want !== cur) {
+      clearTimeout(pending);
+      pending = setTimeout(async ()=>{
+        cur = want; sel = null; closeLayerSoft();
+        if (!cache[cur]) { $("#spin").classList.add("on"); await level(cur); $("#spin").classList.remove("on"); }
+        draw();
+      }, 140);
+    } else { redrawLabels(); }
+  }
+  function closeLayerSoft(){ $("#layer").classList.remove("open"); $("#ldetail").classList.remove("open"); }
+
+  function screenBox(){
+    const t = d3.zoomTransform(svg.node());
+    return [t.invertX(0), t.invertY(0), t.invertX(w), t.invertY(h)];
+  }
+  function inView(f){
+    const [x0,y0,x1,y1] = screenBox();
+    const a = proj([f.bb[0][0], f.bb[1][1]]), b = proj([f.bb[1][0], f.bb[0][1]]);
+    if (!a || !b) return false;
+    return !(b[0] < x0 || a[0] > x1 || b[1] < y0 || a[1] > y1);
+  }
+
+  async function currentFeatures(){
+    const feats = await level(cur);
+    return cur === "prov" ? feats : feats.filter(inView).slice(0, 500);
+  }
+
+  function fillOf(f){
+    if (sel && sel.id === f.id) return f.kind === "sea" ? "#ffc6a5" : C.sel;
+    return f.kind === "sea" ? C.sea : rampFor(countFor(f.props.name, f.kind));
+  }
+
+  async function draw(){
+    const feats = await currentFeatures();
+
+    const seaSel = gSea.selectAll("path.sea").data(SEAS, d=>d.id);
+    seaSel.enter().append("path").attr("class","sea")
+      .attr("d", path).attr("stroke", "#8fa073").attr("stroke-width", 1.2).attr("stroke-dasharray","4 5")
+      .on("mouseover", function(e,d){ if(!(sel&&sel.id===d.id)) d3.select(this).attr("fill", C.seaHi); showTip(e.clientX, e.clientY, d); })
+      .on("mousemove", (e,d)=>showTip(e.clientX, e.clientY, d))
+      .on("mouseout", function(e,d){ d3.select(this).attr("fill", fillOf(d)); hideTip(); })
+      .on("click", (e,d)=>select(d));
+    gSea.selectAll("path.sea").attr("fill", d=>fillOf(d))
+      .attr("stroke", d=> (sel&&sel.id===d.id) ? C.selStroke : "#8fa073")
+      .attr("stroke-dasharray", d=> (sel&&sel.id===d.id) ? null : "4 5");
+
+    const landSel = gLand.selectAll("path.region").data(feats, d=>d.id);
+    landSel.exit().remove();
+    landSel.enter().append("path").attr("class","region")
+      .attr("stroke", C.landStroke)
+      .on("mouseover", function(e,d){ if(!(sel&&sel.id===d.id)) d3.select(this).attr("fill", C.landHi); showTip(e.clientX, e.clientY, d); })
+      .on("mousemove", (e,d)=>showTip(e.clientX, e.clientY, d))
+      .on("mouseout", function(e,d){ d3.select(this).attr("fill", fillOf(d)); hideTip(); })
+      .on("click", (e,d)=>select(d))
+      .merge(landSel)
+      .attr("d", path)
+      .attr("fill", d=>fillOf(d))
+      .attr("stroke-width", d=> (sel&&sel.id===d.id) ? SEL_W[cur] : LINE_W[cur])
+      .attr("stroke", d=> (sel&&sel.id===d.id) ? C.selStroke : C.landStroke);
+
+    const isleSel = gIsle.selectAll("g.isle").data(ISLES, d=>d.name);
+    const ie = isleSel.enter().append("g").attr("class","isle")
+      .on("click", (e,d)=>select(isleFeature(d)));
+    ie.append("circle");
+    ie.append("text").attr("text-anchor","middle").attr("font-size",10.5).attr("font-weight",600)
+      .attr("paint-order","stroke").attr("stroke",C.bg).attr("stroke-width",2.5).attr("fill",C.ink);
+    const merged = ie.merge(isleSel).attr("transform", d=>`translate(${proj(d.center)})`);
+    merged.select("circle")
+      .attr("r", d=>d.r).attr("stroke", C.landStroke).attr("stroke-width", 1.8)
+      .attr("fill", d=> sel && sel.id === "isle-"+d.name ? C.sel : rampFor(countFor(d.name,"isle")));
+    merged.select("text").attr("y", d=>d.r+13).text(d=>`${d.name} · ${countFor(d.name,"isle")}`);
+
+    redrawLabels(feats);
+    updateCrumbs();
+    setLevelChip(cur === "prov" ? 0 : cur === "muni" ? 1 : 2);
+  }
+
+  function redrawLabels(feats){
+    const list = (feats || gLand.selectAll("path.region").data());
+    const t = d3.zoomTransform(svg.node());
+    const cands = [...list, ...SEAS]
+      .map(d=>{
+        const p = proj(d.center);
+        const text = d.props.name;
+        return { d, text, x:t.applyX(p[0]), y:t.applyY(p[1]), w:text.length*11+6, h:15,
+                 rank:(sel&&sel.id===d.id) ? 1e9 : d.kind==="sea" ? 1e6 : /광역시|특별시/.test(d.props.name) ? 8e5 : d3.geoArea(d)*1e5 };
+      })
+      .sort((a,b)=>b.rank-a.rank)
+      .slice(0, 260);
+    const placed = [];
+    const keep = cands.filter(c=>{
+      if (c.x < -40 || c.y < -20 || c.x > w+40 || c.y > h+20) return false;
+      for (const dy of [0,-15,15,-28,28,-40,40]) {
+        const hit = placed.some(p=>Math.abs(p.x-c.x) < (p.w+c.w)/2 && Math.abs((p.y+p.dy)-(c.y+dy)) < c.h);
+        if (!hit) { c.dy = dy; placed.push(c); return true; }
+      }
+      return false;
+    });
+    const s = gLab.selectAll("g.lab").data(keep, c=>c.d.id);
+    s.exit().remove();
+    const e = s.enter().append("g").attr("class","lab").style("pointer-events","none");
+    e.append("text").attr("text-anchor","middle").attr("paint-order","stroke");
+    e.merge(s)
+      .attr("transform", c=>{ const p = proj(c.d.center); return `translate(${p}) scale(${1/tk}) translate(0,${c.dy||0})`; })
+      .select("text")
+      .attr("font-size", 12.5).attr("font-weight", 700)
+      .attr("stroke", C.bg).attr("stroke-width", c=> (sel&&sel.id===c.d.id && c.d.kind!=="sea") ? 0 : 2.6)
+      .attr("fill", c=> (sel&&sel.id===c.d.id) ? (c.d.kind==="sea" ? "#8c491a" : "#f5ead8") : (c.d.kind==="sea" ? "#56633f" : C.ink))
+      .text(c=>c.text);
+  }
+
+  function isleFeature(d){
+    return { id:"isle-"+d.name, props:{ name:d.name }, kind:"isle", lvl:"prov",
+      center:d.center, bb:[[d.center[0]-0.05,d.center[1]-0.05],[d.center[0]+0.05,d.center[1]+0.05]] };
+  }
+
+  async function select(f){
+    sel = f;
+    openLayer(f, await pathFor(f));
+    if (f.kind === "admin") {
+      const [[x0,y0],[x1,y1]] = [proj([f.bb[0][0], f.bb[1][1]]), proj([f.bb[1][0], f.bb[0][1]])];
+      const bw = Math.max(24, x1-x0), bh = Math.max(24, y1-y0);
+      const kMax = cur === "prov" ? 2.3 : cur === "muni" ? 6.8 : 26;   // 레벨 자동전환 임계값 아래로 클램프
+      const mobile = window.innerWidth <= 760;
+      // 모바일은 목록이 화면을 다 덮으므로 패넬 오프셋 없이 화면 전역 기준으로 맞춘다
+      const availW = mobile ? w - 40 : w - railW - 440;
+      const k = Math.min(kMax, Math.max(1, 0.72 * Math.min(availW/bw, (h-100)/bh)));
+      const cx = (x0+x1)/2, cy = (y0+y1)/2;
+      const anchorX = mobile ? w/2 : (w+railW-440)/2;
+      svg.transition().duration(600).call(zoom.transform,
+        d3.zoomIdentity.translate(anchorX - k*cx, (h-44)/2 - k*cy).scale(k));
+    }
+    draw();
+  }
+  function updateCrumbs(){
+    const items = [];
+    if (sel) {
+      if (sel.kind === "sea") items.push({ label:"해역", onClick:null });
+      if (sel.kind === "isle") items.push({ label:"도서", onClick:null });
+      if (sel.kind === "admin" && cur !== "prov") {
+        const pv = provs.find(p => provCodeOfName(p.props.name) === provOf(sel));
+        if (pv) items.push({ label:pv.props.name, onClick:()=>select(pv) });
+      }
+      items.push({ label:sel.props.name, onClick:null });
+    }
+    setCrumbs(items);
+  }
+
+  $("#zin").onclick  = ()=>svg.transition().duration(250).call(zoom.scaleBy, 1.7);
+  $("#zout").onclick = ()=>svg.transition().duration(250).call(zoom.scaleBy, 1/1.7);
+  $("#zreset").onclick = ()=>{ sel=null; closeLayer(); svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity); draw(); };
+
+  draw();
+  fillRail(provs);
+  // 초기 줄 단계를 한 단계 더 확대해서 시작
+  const initK = 1.35;
+  svg.call(zoom.transform, d3.zoomIdentity.translate(w/2 - initK*(w/2), h/2 - initK*(h/2)).scale(initK));
+  return {
+    clearSelection(){ sel=null; draw(); }, kind:"svg",
+    async selectByName(name){
+      const isle = ISLES.find(d=>d.name===name);
+      if (isle) return select(isleFeature(isle));
+      const sea = SEAS.find(f=>f.props.name===name);
+      if (sea) return select(sea);
+      const f = (await level(cur)).find(x=>x.props.name===name) || provs.find(x=>x.props.name===name);
+      if (f) select(f);
+    }
+  };
+}
+
+/* ═══ 6. 카카오맵 엔진 ═══════════════════════════════════════════════ */
+const KEY_STORE = "newsmap.kakao.jskey";
+function loadKakao(key){
+  return new Promise((res, rej)=>{
+    const s = document.createElement("script");
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false`;
+    s.onload = ()=>{ try { kakao.maps.load(()=>res(true)); } catch(e){ rej(e); } };
+    s.onerror = ()=>rej(new Error("SDK 로드 실패 — 키 또는 도메인 등록을 확인해 주세요."));
+    document.head.appendChild(s);
+    setTimeout(()=>rej(new Error("SDK 응답 없음 — 도메인 등록을 확인해 주세요.")), 9000);
+  });
+}
+function decimate(ring, step){
+  if (ring.length <= 12) return ring;
+  const out = ring.filter((_,i)=>i % step === 0);
+  if (out[out.length-1] !== ring[ring.length-1]) out.push(ring[ring.length-1]);
+  return out;
+}
+function ringsOf(feature, step){
+  const g = feature.geometry;
+  const polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+  return polys.map(p => decimate(p[0], step || 1));
+}
+async function kakaoEngine(key){
+  await loadKakao(key);
+  const stage = $("#stage");
+  stage.innerHTML = "";
+  const provs = await level("prov");
+  const K = kakao.maps;
+  const map = new K.Map(stage, { center:new K.LatLng(36.35,127.9), level:13 });
+  map.setMaxLevel(13);            // 전국보다 더 넓게 축소 불가
+  map.setMinLevel(2);
+  const bounds = new K.LatLngBounds(
+    new K.LatLng(KOREA.lat[0], KOREA.lng[0]), new K.LatLng(KOREA.lat[1], KOREA.lng[1]));
+  map.setBounds(bounds);
+  // 한반도 밖으로 나가지 못하게 되돌리기 (주변국 노출 최소화)
+  K.event.addListener(map, "dragend", ()=>{ if (!bounds.contain(map.getCenter())) map.panTo(bounds.getCenter()); });
+
+  // 크림색 마스크: 세계 사각형 - 대한민국(구멍) → 주변국 타일을 덮는다
+  const topo = cache.provTopo;
+  const merged = topojson.merge(topo, topo.objects[FILES.prov[1]].geometries);
+  const outer = [[118,29],[140,29],[140,45],[118,45],[118,29]].map(([x,y])=>new K.LatLng(y,x));
+  const holes = merged.coordinates.map(p => decimate(p[0], 3).map(([x,y])=>new K.LatLng(y,x)));
+  new K.Polygon({ map, path:[outer, ...holes], strokeWeight:0, fillColor:C.bg, fillOpacity:0.97 });
+
+  let cur = "prov", sel = null, shapes = [], overlays = [];
+  const kLevelToLvl = l => l >= 11 ? "prov" : l >= 8 ? "muni" : "sub";
+
+  function clearShapes(){ shapes.forEach(s=>s.setMap(null)); overlays.forEach(o=>o.setMap(null)); shapes=[]; overlays=[]; }
+  function styleFor(f){
+    const on = sel && sel.id === f.id;
+    return { fillColor: on ? C.sel : (f.kind==="sea" ? C.sea : C.land),
+      fillOpacity: on ? .55 : (f.kind==="sea" ? .45 : .34),
+      strokeColor: on ? C.selStroke : "#5f6f46",
+      strokeWeight: on ? Math.max(1.2, SEL_W[cur]*1.2) : Math.max(0.8, LINE_W[cur]*1.4), strokeOpacity:.95 };
+  }
+  function addFeature(f, step){
+    const p = new K.Polygon(Object.assign({ map, path: ringsOf(f, step).map(r=>r.map(([x,y])=>new K.LatLng(y,x))) }, styleFor(f)));
+    K.event.addListener(p, "click", ()=>select(f));
+    K.event.addListener(p, "mouseover", ()=>{ if(!(sel&&sel.id===f.id)) p.setOptions({ fillColor:f.kind==="sea"?C.seaHi:C.landHi, fillOpacity:.5 }); });
+    K.event.addListener(p, "mouseout", ()=>p.setOptions(styleFor(f)));
+    shapes.push(p);
+    return p;
+  }
+  function addLabel(f){
+    const on = sel && sel.id === f.id;
+    const html = on
+      ? `<div class="rpill">${f.props.name}<span class="n">${countFor(f.props.name, f.kind)}</span></div>`
+      : `<div class="rlabel">${f.props.name} · ${countFor(f.props.name, f.kind)}</div>`;
+    const o = new K.CustomOverlay({ map, position:new K.LatLng(f.center[1], f.center[0]), content:html, clickable:false, zIndex:5 });
+    overlays.push(o);
+  }
+  function isleFeature(d){
+    return { id:"isle-"+d.name, props:{ name:d.name }, kind:"isle", lvl:"prov", center:d.center };
+  }
+  function inView(f){
+    const b = map.getBounds();
+    const sw = b.getSouthWest(), ne = b.getNorthEast();
+    const [[w0,s0],[e0,n0]] = f.bb;
+    return !(e0 < sw.getLng() || w0 > ne.getLng() || n0 < sw.getLat() || s0 > ne.getLat());
+  }
+  async function draw(){
+    clearShapes();
+    const feats = await level(cur);
+    const shown = cur === "prov" ? feats : feats.filter(inView).slice(0, 260);
+    const step = cur === "prov" ? 2 : 1;
+    shown.forEach(f=>addFeature(f, step));
+    SEAS.forEach(f=>addFeature(f, 1));
+    ISLES.forEach(d=>{
+      const f = isleFeature(d);
+      const on = sel && sel.id === f.id;
+      const o = new K.CustomOverlay({ map, position:new K.LatLng(d.center[1], d.center[0]), zIndex:6,
+        content:`<div class="${on?"rpill":"rlabel"}" style="cursor:pointer;pointer-events:auto">${d.name}${on?`<span class="n">${countFor(d.name,"isle")}</span>`:` · ${countFor(d.name,"isle")}`}</div>` });
+      overlays.push(o);
+      // 오버레이는 표시용, 클릭은 투명 마커가 받는다
+      const mk = new K.Marker({ map, position:new K.LatLng(d.center[1], d.center[0]), opacity:0.001 });
+      K.event.addListener(mk, "click", ()=>select(f));
+      shapes.push(mk);
+    });
+    if (shown.length <= 46) shown.forEach(addLabel);
+    SEAS.forEach(addLabel);
+    setLevelChip(cur === "prov" ? 0 : cur === "muni" ? 1 : 2);
+    updateCrumbs();
+  }
+  async function select(f){
+    sel = f;
+    openLayer(f, await pathFor(f));
+    if (f.kind === "admin") {
+      const b = new K.LatLngBounds(new K.LatLng(f.bb[0][1], f.bb[0][0]), new K.LatLng(f.bb[1][1], f.bb[1][0]));
+      map.setBounds(b, 40, 40, 40, 440);
+    }
+    draw();
+  }
+  function updateCrumbs(){
+    const items = [];
+    if (sel) {
+      if (sel.kind === "sea") items.push({ label:"해역", onClick:null });
+      if (sel.kind === "isle") items.push({ label:"도서", onClick:null });
+      if (sel.kind === "admin" && cur !== "prov") {
+        const pv = provs.find(p => provCodeOfName(p.props.name) === provOf(sel));
+        if (pv) items.push({ label:pv.props.name, onClick:()=>select(pv) });
+      }
+      items.push({ label:sel.props.name, onClick:null });
+    }
+    setCrumbs(items);
+  }
+  K.event.addListener(map, "idle", async ()=>{
+    const want = kLevelToLvl(map.getLevel());
+    if (want !== cur) {
+      cur = want; sel = null; $("#layer").classList.remove("open");
+      if (!cache[cur]) { $("#spin").classList.add("on"); await level(cur); $("#spin").classList.remove("on"); }
+    }
+    draw();
+  });
+  $("#zin").onclick = ()=>map.setLevel(map.getLevel()-1, { animate:true });
+  $("#zout").onclick = ()=>map.setLevel(Math.min(13, map.getLevel()+1), { animate:true });
+  $("#zreset").onclick = ()=>{ sel=null; closeLayer(); map.setBounds(bounds); draw(); };
+  draw();
+  return { clearSelection(){ sel=null; draw(); }, kind:"kakao" };
+}
+
+/* ═══ 7. 부팅 / 엔진 전환 ═══════════════════════════════════════════ */
+$("#kakaobtn").addEventListener("click", ()=>{
+  $("#keyin").value = localStorage.getItem(KEY_STORE) || "";
+  $("#keydlg").classList.add("open");
+  $("#keyin").focus();
+});
+$("#keycancel").addEventListener("click", ()=>$("#keydlg").classList.remove("open"));
+$("#keyok").addEventListener("click", async ()=>{
+  const key = $("#keyin").value.trim();
+  if (!key) return;
+  localStorage.setItem(KEY_STORE, key);
+  $("#keydlg").classList.remove("open");
+  $("#enginenote").textContent = "카카오맵 불러오는 중…";
+  try {
+    engine = await kakaoEngine(key);
+    $("#enginenote").textContent = "카카오맵 타일 + 폴리곤";
+    $("#kakaobtn").textContent = "폴리곤 모드로 보기";
+    $("#kakaobtn").onclick = ()=>location.reload();
+  } catch(e) {
+    console.warn(e);
+    $("#enginenote").textContent = "카카오맵 실패: " + e.message;
+    engine = await svgEngine();
+  }
+});
+(async()=>{
+  try { engine = await svgEngine(); }
+  catch(e){ console.error(e); }
+})();
+// 모바일에서 목록이 열릴 때 URL바 높이 변화로 resize가 톤다 → 넓이가 실제로 바눵 때만 재구성
+let lastW = window.innerWidth;
+window.addEventListener("resize", ()=>{
+  if (Math.abs(window.innerWidth - lastW) < 40) return;
+  lastW = window.innerWidth;
+  if (engine && engine.kind === "svg") svgEngine().then(e=>engine=e);
+});
+</script>
+</body>
+</html>

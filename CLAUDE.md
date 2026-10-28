@@ -7,7 +7,9 @@
 
 ## 각 프로젝트 개요와 역할
 - **fe/**
-    - 프론트엔드 (기술스택 미정). 지도 기반의 UI.
+    - 프론트엔드. 지도에서 지역(시도·시군구·읍면동·바다·섬)을 고르면 그 지역 기사 목록을 보여 주고, 기사를 누르면 원문을 새 창으로 연다.
+    - 기술스택: Next.js 16.4(App Router, Turbopack) + React 19 + TypeScript 5.9 + Tailwind CSS 4. 지도는 카카오맵 JS SDK(키가 있으면 기본) 또는 d3 SVG 폴리곤, 경계는 행정동 TopoJSON(topojson-client, mapshaper 로 생성).
+    - be 가 준비되기 전에는 `contracts/API.md` 모양의 mock 데이터로 동작한다(`NEXT_PUBLIC_USE_MOCK_API`). 구현·작업 이력은 `apps/fe/CLAUDE.md`.
 - **be/**
     - 백엔드 API. PHP/Laravel/FrankenPHP 기반. 지역기사 목록 및 하이브리드 검색(BM25+Vector) 수행
 - **rag/**
@@ -29,6 +31,7 @@
 - `README.md`: 운영 방법과 데이터 모델·청킹·검색 요약.
 - `prompts/<주제>.prompt.txt`: 원본 요구사항. `prompts/<주제>.decisions.md`: 그 요구사항에서 확정한 결정 사항과 남은 확인 사항. 설계 의도를 확인할 때는 decisions 문서를 먼저 본다.
 - `contracts/schema.sql`: DB의 단일 진실 공급원. be/rag 양쪽이 이 스키마를 계약으로 공유한다. 스키마 변경시 be/rag 의 영향과 함께 이 파일도 점검한다.
+- `contracts/API.md`: fe ↔ be 사이 API 규칙(엔드포인트·요청·응답 형식)의 단일 진실 공급원. be는 이 문서대로 구현하고 fe는 이 문서를 기준으로 호출한다. API 변경시 fe/be 의 영향과 함께 이 파일도 점검한다.
 
 ## 자주 쓰는 명령
 
@@ -43,6 +46,9 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 
 # 행정동 마스터 적재 (PEP 723 인라인 의존성, Python 3.11+). --dry-run 은 적재 후 롤백
 uv run apps/db/scripts/load_regions.py KIKcd_H.20260101.xlsx --dry-run
+
+# fe 개발 서버 (apps/fe/.env 필요. 이 PC는 3000번대 포트가 Windows 예약이라 4000 사용)
+(cd apps/fe && npm run dev -- --port 4000)
 ```
 
 - 로컬 전용 compose 설정은 `docker-compose.override.yml`(gitignore 대상)에 둔다.
