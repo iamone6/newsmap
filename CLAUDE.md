@@ -16,8 +16,9 @@
     - 지역언론 RSS 수집 -> 전처리 및 메타데이터 추출, 행정동 단위 분류 -> 청킹 -> 임베딩 -> DB적재. 백엔드의 하이브리드 검색(BM25+Vector)및 지역별 기사 목록 출력을 위한 데이터 저장
     - Python/Langchain 기반
 - **dockerfiles/, docker-compose.yml**
-    - db·rag 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
+    - db·rag·fe 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
     - rag 이미지는 소스를 `COPY . .`로 굽기 때문에 코드나 `feeds.yaml`·`region_aliases.yaml`을 바꾸면 `--build`로 이미지를 다시 만들어야 반영된다.
+    - fe 는 Next.js standalone 출력을 `node server.js` 로 서빙한다. prod 는 호스트 80 포트, 로컬은 override 에서 `ports: !override`로 4000 만 연다. `NEXT_PUBLIC_*` 는 빌드 시점에 번들로 박히므로 `apps/fe/.env` 를 compose build secret 으로 빌드 때만 넘기고, 값을 바꾸면 `--build` 가 필요하다.
 - **Database**
     -  PostgreSQL 18.6 + pgvector 0.8.6 + pg_search(ParadeDB) 0.25.11. 버전을 올릴 때는 `dockerfiles/db.dockerfile`의 `ARG`(pg_search sha256 포함)와 README 버전 표를 함께 고친다. pg_search는 `shared_preload_libraries` 등록이 필요해 `postgresql.conf.sample`을 수정하는 방식이므로, 이미 initdb된 데이터 디렉터리에는 반영되지 않는다.
     - 모든 시각은 `timestamptz(0)`, 시간대 `Asia/Seoul`. 보존 기간 1년, `articles` 삭제 시 하위 테이블은 `ON DELETE CASCADE`.
@@ -57,7 +58,10 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --retire-missing --dry-run
 (cd apps/rag && uv run python -m rag.remap_regions --dry-run)
 
-# fe 개발 서버 (apps/fe/.env 필요. 이 PC는 3000번대 포트가 Windows 예약이라 4000 사용)
+# fe 컨테이너 빌드 + 기동 (apps/fe/.env 필요. 로컬 http://localhost:4000, prod :80)
+docker compose up -d --build fe
+
+# fe 개발 서버 (apps/fe/.env 필요. 이 PC는 3000번대 포트가 Windows 예약이라 4000 사용, fe 컨테이너와 동시에 못 띄움)
 (cd apps/fe && npm run dev -- --port 4000)
 ```
 

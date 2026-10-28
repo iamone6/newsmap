@@ -37,3 +37,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  fe:
+    build:
+      context: ./apps/fe
+      dockerfile: ../../dockerfiles/fe.dockerfile
+      secrets:
+        - fe_env
+    image: newsmap-fe:0.1.0
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      # prod 는 80 으로 접근한다. 로컬은 docker-compose.override.yml 에서 4000 으로 바꾼다.
+      - "80:3000"
+
+secrets:
+  # NEXT_PUBLIC_* 는 빌드 시점에 번들로 박히므로 apps/fe/.env 를 빌드 때만 넘긴다 (dockerfiles/fe.dockerfile 참고)
+  fe_env:
+    file: ./apps/fe/.env

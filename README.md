@@ -5,13 +5,16 @@
 ## 디렉터리 구성
 
 ```
-├─ docker-compose.yml          # 지금은 db 서비스만 있음
+├─ docker-compose.yml          # db, rag, fe 서비스
 ├─ dockerfiles/db.dockerfile   # PostgreSQL + 확장
+├─ dockerfiles/rag.dockerfile  # Python 워커 (상시 기동, exec 로 실행)
+├─ dockerfiles/fe.dockerfile   # Next.js standalone (prod 80 포트)
 ├─ contracts/schema.sql        # DB 스키마 (직접 적용)
 └─ apps/
    ├─ db/.env.example          # db 컨테이너와 DB 스크립트용 POSTGRES_*
    ├─ db/scripts/              # DB 기준 데이터 적재 스크립트 (행정동 코드)
    ├─ be/.env.example          # Laravel (조회·검색)
+   ├─ fe/.env.example          # Next.js 지도 화면 (NEXT_PUBLIC_* 는 빌드 때 박힘)
    └─ rag/.env.example         # Python 워커 (수집·청킹·임베딩)
 ```
 

@@ -22,21 +22,37 @@
 - Next 16 은 이전 버전과 API·규칙이 다르다. 코드를 쓰기 전에 `node_modules/next/dist/docs/`를 확인한다(`AGENTS.md`).
 
 ## 명령
+이 PC는 Windows가 3000번대 포트를 예약해 둬서 로컬은 4000 을 쓴다. dev 서버와 fe 컨테이너는 둘 다 4000 이라 동시에 띄우지 않는다.
+
 ```bash
-npm run dev -- --port 4000   # 개발 서버 (이 PC는 Windows가 3000번대 포트를 예약해 둠)
-npm run build                # 프로덕션 빌드 (타입 검사 포함)
+# 로컬 테스트 (hot reload). apps/fe 에서 실행
+npm run dev -- --port 4000
+
+# 빌드 (타입 검사 포함). apps/fe 에서 실행
+npm run build
 npm run lint
 npm run build:geo            # public/geo/*.topo.json 재생성 (원본은 .cache/ 에 내려받음)
+
+# 빌드 결과 로컬 실행. standalone 경고가 뜨지만 동작한다 (컨테이너와 같은 방식은 node .next/standalone/server.js)
+npm run start -- --port 4000
+
+# 도커 빌드 + 실행 (레포 루트에서). 로컬 http://localhost:4000, prod :80
+docker compose build fe
+docker compose up -d fe      # 빌드까지 한 번에: docker compose up -d --build fe
+docker compose logs -f fe
+docker compose stop fe       # dev 서버로 돌아갈 때 4000 포트를 비운다
 ```
+- 도커 이미지는 `dockerfiles/fe.dockerfile`(`output: "standalone"`)로 만든다. prod 는 80, 로컬은 `docker-compose.override.yml` 의 `ports: !override` 로 4000 만 연다.
+- 이미지에는 `.env` 를 남기지 않는다(빌드 때 compose secret 으로만 마운트, standalone 이 복사한 `.env` 는 삭제). `NEXT_PUBLIC_*` 를 바꾸면 다시 빌드한다.
 
 ## 환경변수 (`.env`, 키 목록은 `.env.example`)
 | 키 | 설명 |
 |---|---|
-| `NEXT_PUBLIC_KAKAO_MAP_JS_KEY` | 카카오 JavaScript 키. 비우면 SVG 지도. Kakao Developers 플랫폼 > Web 에 접속 도메인(예: `http://localhost:4000`) 등록 필요 |
+| `NEXT_PUBLIC_KAKAO_MAP_JS_KEY` | 카카오 JavaScript 키. 비우면 SVG 지도. Kakao Developers 플랫폼 > Web 에 접속 도메인(예: `http://localhost:4000`, prod 도메인) 등록 필요. 미등록이면 SDK 가 401 `domain mismatched` 로 실패하고 SVG 로 대체된다 |
 | `NEXT_PUBLIC_API_BASE_URL` | be API 주소 (예: `http://localhost:8000/api/v1`) |
 | `NEXT_PUBLIC_USE_MOCK_API` | `true` 면 be 대신 `src/lib/api/mock/` 가짜 데이터 사용 |
 
-`NEXT_PUBLIC_` 값은 빌드 시점에 코드에 박히므로, 바꾸면 dev 서버를 재시작한다. 환경변수는 `src/lib/config.ts`에서만 읽는다.
+`NEXT_PUBLIC_` 값은 빌드 시점에 코드에 박히므로, 바꾸면 dev 서버를 재시작한다(도커는 `--build` 로 다시 빌드). 환경변수는 `src/lib/config.ts`에서만 읽는다.
 
 ## API 계약
 - fe ↔ be API 는 `contracts/API.md`를 따른다. 응답 타입은 `src/lib/api/types.ts`에 1:1 로 둔다.

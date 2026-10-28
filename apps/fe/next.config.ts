@@ -2,6 +2,8 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 도커 이미지에서 node_modules 전체 없이 `node server.js` 만으로 돌리기 위해 필요한 파일만 .next/standalone 에 모은다
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
