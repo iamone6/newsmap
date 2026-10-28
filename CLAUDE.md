@@ -37,6 +37,7 @@
 - `prompts/<주제>.prompt.txt`: 원본 요구사항. `prompts/<주제>.decisions.md`: 그 요구사항에서 확정한 결정 사항과 남은 확인 사항. 설계 의도를 확인할 때는 decisions 문서를 먼저 본다. `prompts/<주제>.research.md`: 조사 결과(예: 지역언론 RSS 피드 후보).
 - `contracts/schema.sql`: DB의 단일 진실 공급원. be/rag 양쪽이 이 스키마를 계약으로 공유한다. 스키마 변경시 be/rag 의 영향과 함께 이 파일도 점검한다.
 - `contracts/API.md`: fe ↔ be 사이 API 규칙(엔드포인트·요청·응답 형식)의 단일 진실 공급원. be는 이 문서대로 구현하고 fe는 이 문서를 기준으로 호출한다. API 변경시 fe/be 의 영향과 함께 이 파일도 점검한다. API 지역 코드는 2/5/10자리, DB는 10자리이며 변환은 be가 한다.
+- `contracts/TODO.md`: 앞으로 해야 할 일 목록. 새로 생긴 후속 작업은 여기에 적고, 끝낸 항목은 지운다. 작업을 시작하기 전에 관련 항목이 있는지 확인한다.
 
 ## 자주 쓰는 명령
 
