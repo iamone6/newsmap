@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent  # apps/rag
 FEEDS_PATH = PACKAGE_ROOT / "feeds.yaml"
+REGION_ALIASES_PATH = PACKAGE_ROOT / "region_aliases.yaml"
 
 
 @dataclass(frozen=True)
@@ -104,3 +105,18 @@ def get_feed(feed_key: str, path: Path = FEEDS_PATH) -> FeedConfig:
         return feeds_file.feeds[feed_key]
     except KeyError:
         raise RuntimeError(f"feeds.yaml 에 feed_key={feed_key!r} 가 없다.") from None
+
+
+@dataclass(frozen=True)
+class RegionAliases:
+    """옛 지역명 → 현행 지역명 별칭 표 (region_aliases.yaml)."""
+
+    sido: dict[str, str]
+
+
+def load_region_aliases(path: Path = REGION_ALIASES_PATH) -> RegionAliases:
+    """region_aliases.yaml 을 읽는다. 파일이 없으면 빈 별칭 표를 돌려준다."""
+    if not path.exists():
+        return RegionAliases(sido={})
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return RegionAliases(sido={str(k): str(v) for k, v in (raw.get("sido") or {}).items()})

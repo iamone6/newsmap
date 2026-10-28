@@ -11,6 +11,7 @@
   - code 기준 upsert. 기존 행은 지우지 않는다 (폐지 코드는 말소일자 → valid_to).
   - level 은 코드 모양으로 판단: XX00000000 → 시도, XXXXX00000 → 시군구, 그 외 → 읍면동
   - parent_code: 읍면동 → 소속 시군구, 일반구(예: 수원시 영통구) → 시(수원시), 시군구 → 시도
+  - --retire-missing: 이번 파일에 없는 현행 코드에 valid_to = 파일 기준일을 채운다 (행정구역 개편 반영용).
   - 전체를 한 트랜잭션으로 처리한다.
 
 사용:
@@ -26,6 +27,7 @@ import argparse
 import csv
 import datetime as dt
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -73,6 +75,12 @@ def parse_date(value) -> dt.date | None:
     raise ValueError(f"날짜 형식을 알 수 없습니다: {value!r}")
 
 
+def file_date(path: Path) -> dt.date | None:
+    """파일명(KIKcd_H.YYYYMMDD.xlsx)에서 기준일을 꺼낸다. 없으면 None."""
+    match = re.search(r"(\d{8})", path.name)
+    return parse_date(match.group(1)) if match else None
+
+
 def to_region(row: dict) -> tuple | None:
     code = clean(row.get("행정동코드"))
     if code is None:
@@ -110,7 +118,16 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1", help="DB 호스트 (기본: 127.0.0.1)")
     parser.add_argument("--port", default="5432", help="DB 포트 (기본: 5432)")
     parser.add_argument("--dry-run", action="store_true", help="적재 후 롤백")
+    parser.add_argument("--retire-missing", action="store_true",
+                        help="이번 파일에 없는 현행 코드를 파일 기준일로 말소(valid_to) 처리")
+    parser.add_argument("--as-of", help="--retire-missing 에 쓸 기준일 YYYYMMDD (기본: 파일명의 날짜)")
     args = parser.parse_args()
+
+    retire_date = None
+    if args.retire_missing:
+        retire_date = parse_date(args.as_of) if args.as_of else file_date(args.file)
+        if retire_date is None:
+            raise SystemExit("--retire-missing: 파일명에서 날짜를 찾지 못했습니다. --as-of YYYYMMDD 를 지정하세요.")
 
     if args.env.exists():
         load_dotenv(args.env)
@@ -192,6 +209,18 @@ def main() -> int:
               AND EXISTS (SELECT 1 FROM regions x WHERE x.code = p.parent_code)
               AND r.parent_code IS DISTINCT FROM p.parent_code
         """)
+        # 3) --retire-missing: 이번 파일에 없는데 아직 현행(valid_to NULL)인 코드를 말소 처리
+        #   행은 지우지 않는다 (article_regions FK 가 옛 코드를 참조할 수 있음)
+        retired = 0
+        if retire_date is not None:
+            cur.execute("""
+                UPDATE regions r
+                SET valid_to = %s
+                WHERE r.valid_to IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM regions_import i WHERE i.code = r.code)
+            """, (retire_date,))
+            retired = cur.rowcount
+
         cur.execute("""
             SELECT count(*) FILTER (WHERE r.level > 1 AND r.parent_code IS NULL),
                    count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM regions_import i WHERE i.code = r.code))
@@ -210,6 +239,8 @@ def main() -> int:
             print(f"경고: 상위 코드를 찾지 못한 행 {orphan}개 (parent_code NULL)")
         if not_in_file:
             print(f"참고: 이번 파일에 없는 기존 코드 {not_in_file}개 (삭제하지 않음)")
+        if retire_date is not None:
+            print(f"말소 처리: 이번 파일에 없던 현행 코드 {retired}개 → valid_to = {retire_date}")
 
         if args.dry_run:
             conn.rollback()

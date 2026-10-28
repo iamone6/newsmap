@@ -9,12 +9,25 @@ Base URL: `/api/v1` · JSON only · 인증: Laravel Sanctum Bearer 토큰 (`Auth
 |---|---|---|
 | sido | 2자리 | `11` 서울특별시 |
 | sigungu | 5자리 | `11680` 강남구 |
-| emd | 7자리 이상(행정동) | `1168064000` 역삼1동 |
+| emd | 10자리(행정동) | `1168064000` 역삼1동 |
 | sea | `SEA_W`, `SEA_S`, `SEA_E` | 서해 / 남해 / 동해 |
 | island | `ISL_JEJU`, `ISL_ULLEUNG`, `ISL_DOKDO` | 지도에서 별도 클릭 영역 |
 
 `island`는 실제 행정코드(`50`, `37430` 등)와 `admin_code`로 연결 — 게시물 집계 시 하위 지역 포함 여부는 `include_children` 파라미터로 제어.
 
+### API 코드 ↔ DB 코드 변환 (be 책임)
+DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동 코드(KIKcd_H)를 **항상 10자리**로 저장한다. API는 사람이 읽기 쉬운 2/5/10자리를 쓰고, 변환은 be만 한다(fe·rag는 각자 형식 그대로).
+
+| level | API | DB (10자리) | 규칙 |
+|---|---|---|---|
+| sido | `12` | `1200000000` | 뒤 8자리 `0` 채움 / DB `XX00000000` → 앞 2자리 |
+| sigungu | `12240` | `1224000000` | 뒤 5자리 `0` 채움 / DB `XXXXX00000` → 앞 5자리 |
+| emd | `1224061000` | `1224061000` | 그대로 |
+
+- depth 판정: API는 길이(2/5/10), DB는 뒷자리 0 패턴(`apps/db/scripts/load_regions.py`와 같은 규칙).
+- 시군구에는 일반구도 있다(예: `41117` 수원시 영통구, 상위 시는 `41110` 수원시). 둘 다 sigungu 코드로 검색할 수 있다.
+- 행정구역은 **최신 행정동 마스터**를 따른다. 예) 광주·전남은 `12` 전남광주통합특별시. 개편으로 말소된 코드(옛 `29` 광주광역시, `46` 전라남도 등)는 API에서 쓰지 않는다.
+- 지도 경계(`apps/fe/public/geo/*.topo.json`)의 기준일은 DB 마스터 기준일과 맞춘다.
 
 ---
 
@@ -121,6 +134,12 @@ Base URL: `/api/v1` · JSON only · 인증: Laravel Sanctum Bearer 토큰 (`Auth
 | `page` | 1~ | 1 |
 | `per_page` | 1~50 | 10 |
 | `include_children` | `1` \| `0` | `1` (시도 선택 시 하위 시군구 게시물 포함) |
+
+`{code}`는 시도(2)·시군구(5)·읍면동(10) 중 어느 depth든 된다. be 처리:
+- `{code}`를 10자리로 변환한다(위 "API 코드 ↔ DB 코드 변환").
+- `include_children=1`: `article_chunks.region_codes && ARRAY[변환코드]`로 거른다(= `search_chunks()`의 `p_region_codes`). `region_codes`는 기사 지역을 상위 단위까지 펼쳐 저장하므로, 시도로 물으면 그 아래 시군구·읍면동 기사까지 잡힌다.
+- `include_children=0`: `article_regions`에서 해당 depth 컬럼(`sido_code`/`sigungu_code`/`emd_code`)이 정확히 일치하고 그보다 아래 depth는 NULL인 기사만 고른다(그 depth로만 판정된 기사).
+- `q`가 있으면 `search_chunks()`(BM25+벡터 RRF)를 쓰고, 없으면 `published_at`/`view_count` 정렬 목록을 쓴다.
 
 ```json
 {

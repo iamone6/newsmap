@@ -116,6 +116,19 @@ uv run apps/db/scripts/load_regions.py KIKcd_H.20260101.xlsx
 - `--dry-run`: 적재한 뒤 롤백해서 건수만 확인합니다.
 - `--env`: 다른 `.env` 파일을 지정합니다.
 - `--host`, `--port`: 접속할 DB 주소를 바꿉니다.
+- `--retire-missing`: 이번 파일에 없는 현행 코드를 파일 기준일(파일명의 YYYYMMDD, 또는 `--as-of`)로 말소 처리합니다. 행은 지우지 않습니다.
+
+### 행정구역 개편 반영 (마스터 갱신)
+행정구역은 항상 최신 마스터를 따릅니다(예: 광주·전남 → 전남광주통합특별시). 개편이 있으면 아래 순서로 갱신합니다.
+
+```bash
+uv run apps/db/scripts/load_regions.py KIKcd_H.YYYYMMDD.xlsx --retire-missing --dry-run   # 건수 확인
+uv run apps/db/scripts/load_regions.py KIKcd_H.YYYYMMDD.xlsx --retire-missing
+cd apps/rag && uv run python -m rag.remap_regions --dry-run   # 기존 기사 재매핑 건수 확인
+cd apps/rag && uv run python -m rag.remap_regions
+```
+
+지도 경계(`apps/fe/scripts/build-geo.mjs`의 `SOURCE_VERSION`)도 같은 기준일 근처 버전으로 맞춥니다.
 
 **동작 방식**
 - 코드를 기준으로 upsert합니다. 새 파일을 받을 때마다 다시 실행하면 됩니다. 기존 행은 지우지 않고, 폐지된 코드는 말소일자가 `valid_to`에 들어갑니다.

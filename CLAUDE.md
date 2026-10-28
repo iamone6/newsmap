@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-이 레포지토리는 be, fe, rag 세 개의 프로젝트로 구성된 monorepo 이다.
-세 개의 프로젝트는 프로젝트 루트마다 각각의 CLAUDE.md 를 가진다.
+이 레포지토리는 be, fe, rag 세 개의 프로젝트와 DB 운영 디렉터리(db)로 구성된 monorepo 이다.
+각 프로젝트(`apps/be`, `apps/fe`, `apps/rag`)와 `apps/db`는 루트마다 각각의 CLAUDE.md 를 가진다.
 목표는 rag 가 수집하고 저장한 기사를 be 가 api 로 목록, 검색을 제공하고 fe 가 사용자 계층을 맡아서, 지도 인터페이스를 기반으로 한 선택된 지역의 기사 목록을 보여주고, 기사 선택시 새창으로 해당 페이지로 이동시키는 것이다.
 루트 CLAUDE.md는 모노레포 공통 원칙을 정의한다. 각 프로젝트의 CLAUDE.md는 해당 프로젝트의 구체적인 구현·검증 방법을 정의하며, 공통 원칙과 충돌하지 않는 범위에서 적용한다.
 
@@ -18,6 +18,7 @@
 - **Database**
     -  PostgreSQL 18.6 + pgvector 0.8.6 + pg_search(ParadeDB) 0.25.11. 버전을 올릴 때는 `dockerfiles/db.dockerfile`의 `ARG`(pg_search sha256 포함)와 README 버전 표를 함께 고친다. pg_search는 `shared_preload_libraries` 등록이 필요해 `postgresql.conf.sample`을 수정하는 방식이므로, 이미 initdb된 데이터 디렉터리에는 반영되지 않는다.
     - 모든 시각은 `timestamptz(0)`, 시간대 `Asia/Seoul`. 보존 기간 1년, `articles` 삭제 시 하위 테이블은 `ON DELETE CASCADE`.
+    - 주소·행정동(지역 코드 체계, 행정동 마스터 적재·갱신, 기사 지역 재매핑)은 `apps/db/CLAUDE.md`. 행정구역은 항상 최신 마스터를 따른다(예: 전남광주통합특별시 `12`).
     - cron은 앱 쪽에서 돌리고 DB(pg_cron)에는 넣지 않는다. 각 앱은 자기 `.env`를 따로 가지며 DB 접속값은 `apps/db/.env`의 `POSTGRES_*`와 맞춘다. 피드·언론사 목록은 DB가 아니라 설정 파일로 관리하고 DB에는 `feed_key`, `publisher_name`만 저장한다.
 
 ## 프로젝트 공통 규칙
@@ -31,7 +32,7 @@
 - `README.md`: 운영 방법과 데이터 모델·청킹·검색 요약.
 - `prompts/<주제>.prompt.txt`: 원본 요구사항. `prompts/<주제>.decisions.md`: 그 요구사항에서 확정한 결정 사항과 남은 확인 사항. 설계 의도를 확인할 때는 decisions 문서를 먼저 본다.
 - `contracts/schema.sql`: DB의 단일 진실 공급원. be/rag 양쪽이 이 스키마를 계약으로 공유한다. 스키마 변경시 be/rag 의 영향과 함께 이 파일도 점검한다.
-- `contracts/API.md`: fe ↔ be 사이 API 규칙(엔드포인트·요청·응답 형식)의 단일 진실 공급원. be는 이 문서대로 구현하고 fe는 이 문서를 기준으로 호출한다. API 변경시 fe/be 의 영향과 함께 이 파일도 점검한다.
+- `contracts/API.md`: fe ↔ be 사이 API 규칙(엔드포인트·요청·응답 형식)의 단일 진실 공급원. be는 이 문서대로 구현하고 fe는 이 문서를 기준으로 호출한다. API 변경시 fe/be 의 영향과 함께 이 파일도 점검한다. API 지역 코드는 2/5/10자리, DB는 10자리이며 변환은 be가 한다.
 
 ## 자주 쓰는 명령
 
@@ -44,8 +45,9 @@ docker compose up -d --build db
 # 스키마 적용 (최초 1회, 마이그레이션 도구 없음)
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < contracts/schema.sql
 
-# 행정동 마스터 적재 (PEP 723 인라인 의존성, Python 3.11+). --dry-run 은 적재 후 롤백
-uv run apps/db/scripts/load_regions.py KIKcd_H.20260101.xlsx --dry-run
+# 행정동 마스터 적재 → 기존 기사 재매핑 (상세 절차·검증은 apps/db/CLAUDE.md). --dry-run 은 롤백
+uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --retire-missing --dry-run
+(cd apps/rag && uv run python -m rag.remap_regions --dry-run)
 
 # fe 개발 서버 (apps/fe/.env 필요. 이 PC는 3000번대 포트가 Windows 예약이라 4000 사용)
 (cd apps/fe && npm run dev -- --port 4000)

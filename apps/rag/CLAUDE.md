@@ -55,6 +55,8 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 4. LLM 판단 (모델은 `LLM_MODEL`): 지역(시도/시군구/읍면동, 행정동 코드와 매칭될 이름), 기자명(이메일 제외), 통신사 전재 여부(`wire_agencies` 별칭으로 정규화, 원문은 `wire_source_raw`), 이미지 캡션의 라이선스 출처, 섹션(6개 중 되도록 1개).
    - 지역 이름 → `regions` 코드 매칭. 실패하면 코드 NULL, 이름은 보관. 지역 무관이면 `article_regions` 행을 만들지 않는다.
    - `article_regions`의 코드는 `regions` FK라서, 행정동 마스터(`apps/db/scripts/load_regions.py`)가 수집 전에 먼저 적재돼 있어야 한다. 적재가 안 돼 있으면 모든 지역 매칭이 NULL로 빠진다.
+   - 매칭은 현행 코드(`valid_to IS NULL`)만 대상으로 한다(`rag/regions.py`). 시도명은 `region_aliases.yaml`의 별칭으로 현행 이름으로 바꾼다(예: 광주광역시·전라남도 → 전남광주통합특별시). 시군구가 쪼개져 이름이 없어진 경우는 "시도 + 읍면동명"이 현행 읍면동 하나로만 정해질 때 그 읍면동으로 매칭한다.
+   - 행정구역 개편 시 마스터 갱신 → `uv run python -m rag.remap_regions [--dry-run]` 재매핑 절차, 매칭 규칙 상세, 현재 마스터 버전은 `apps/db/CLAUDE.md`를 따른다. 매칭 로직이나 `region_aliases.yaml`을 바꾸면 컨테이너 이미지를 다시 빌드한다(`COPY . .`).
 5. `published_at` = RSS 발행일 → RSS 생성일 → 수집 시각, 사용한 출처를 `published_at_source`에 기록.
 6. 청킹: 문단 우선 `RecursiveCharacterTextSplitter`, Qwen3 토크나이저로 오버랩 포함 최대 `CHUNK_MAX_TOKENS`, 앞뒤 `CHUNK_OVERLAP_RATIO`. `token_count`, `chunk_index`(0부터) 저장.
 7. `embed_text` = `[지역: … | 날짜: YYYY-MM-DD | 제목: …]` 헤더 + 청크 본문. DeepInfra OpenAI 호환 API로 문서용 임베딩(쿼리 instruction은 붙이지 않음), `EMBEDDING_DIMENSIONS`와 응답 차원이 다르면 실패 처리. 차원을 바꾸는 건 `schema.sql`의 `halfvec(1024)`와 `search_chunks()` 파라미터 타입을 함께 바꾸고 전체를 다시 임베딩해야 하는 큰 변경이라, 직접 하지 말고 질문으로 보고한다. 모델을 바꾸면 README 표에 기록한다.
