@@ -1,7 +1,8 @@
 # TODO
 
-앞으로 해야 할 일을 기록한다. 끝낸 항목은 지운다.
+앞으로 해야 할 일을 기록한다. 끝낸 항목은 지운다. 위에 있을수록 먼저 한다.
 
+- [ ] **(최우선)** fe 실제 API 연결 계획 세우기 — 아래 "fe 실제 API 연결" 항목의 범위·순서·mock 유지 여부를 정한다
 - [ ] github CI/CD to Vultr - be 기초 작성 후 진행
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화. 그 전까지 fe 의 "인기순" 옵션을 숨길지 결정
 - [ ] 썸네일 크기: rag 가 이미지 width/height 를 수집해 `article_images` 에 저장 → API `thumbnail` 을 다시 채움
