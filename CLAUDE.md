@@ -12,13 +12,16 @@
     - be 가 준비되기 전에는 `contracts/API.md` 모양의 mock 데이터로 동작한다(`NEXT_PUBLIC_USE_MOCK_API`). 구현·작업 이력은 `apps/fe/CLAUDE.md`.
 - **be/**
     - 백엔드 API. PHP/Laravel/FrankenPHP 기반. 지역기사 목록 및 하이브리드 검색(BM25+Vector) 수행
+    - PHP 8.5 + Laravel 13 + Octane(FrankenPHP worker) + Sanctum. 골격만 있고 엔드포인트는 미구현. 구현·명령은 `apps/be/CLAUDE.md`.
 - **rag/**
     - 지역언론 RSS 수집 -> 전처리 및 메타데이터 추출, 행정동 단위 분류 -> 청킹 -> 임베딩 -> DB적재. 백엔드의 하이브리드 검색(BM25+Vector)및 지역별 기사 목록 출력을 위한 데이터 저장
     - Python/Langchain 기반
 - **dockerfiles/, docker-compose.yml**
-    - db·rag·fe 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
+    - db·rag·fe·be 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
     - rag 이미지는 소스를 `COPY . .`로 굽기 때문에 코드나 `feeds.yaml`·`region_aliases.yaml`을 바꾸면 `--build`로 이미지를 다시 만들어야 반영된다.
-    - fe 는 Next.js standalone 출력을 `node server.js` 로 서빙한다. prod 는 호스트 80 포트, 로컬은 override 에서 `ports: !override`로 4000 만 연다. `NEXT_PUBLIC_*` 는 빌드 시점에 번들로 박히므로 `apps/fe/.env` 를 compose build secret 으로 빌드 때만 넘기고, 값을 바꾸면 `--build` 가 필요하다.
+    - **be(FrankenPHP/Caddy)가 서비스 앞단**이다. prod 는 호스트 80/443(도메인이면 HTTPS 자동 발급), 로컬은 override 에서 `ports: !override`로 4000 만 연다. `/api/*`·`/up` 은 Laravel, 나머지는 fe 로 프록시한다(`apps/be/Caddyfile`). 같은 도메인이라 CORS 가 없다.
+    - fe 는 호스트 포트를 열지 않고(`expose: 3000`) be 뒤에서만 접근한다. Next.js standalone 출력을 `node server.js` 로 서빙한다. `NEXT_PUBLIC_*` 는 빌드 시점에 번들로 박히므로 `apps/fe/.env` 를 compose build secret 으로 빌드 때만 넘기고, 값을 바꾸면 `--build` 가 필요하다.
+    - 로컬 be 는 dev 타깃 + 소스 bind mount 라 코드 변경이 재빌드 없이 반영된다(상세는 `apps/be/CLAUDE.md`).
 - **Database**
     -  PostgreSQL 18.6 + pgvector 0.8.6 + pg_search(ParadeDB) 0.25.11. 버전을 올릴 때는 `dockerfiles/db.dockerfile`의 `ARG`(pg_search sha256 포함)와 README 버전 표를 함께 고친다. pg_search는 `shared_preload_libraries` 등록이 필요해 `postgresql.conf.sample`을 수정하는 방식이므로, 이미 initdb된 데이터 디렉터리에는 반영되지 않는다.
     - 모든 시각은 `timestamptz(0)`, 시간대 `Asia/Seoul`. 보존 기간 1년, `articles` 삭제 시 하위 테이블은 `ON DELETE CASCADE`.
@@ -45,7 +48,7 @@
 # DB 이미지 빌드 + 기동 (apps/db/.env 필요, 호스트 /data/postgres 에 bind mount)
 docker compose up -d --build db
 
-# db + rag 함께 기동 (apps/rag/.env 필요. rag 는 상시 기동 상태로 대기)
+# 전체 기동 (apps/{db,rag,fe,be}/.env 필요. rag 는 상시 기동 상태로 대기). 로컬 http://localhost:4000
 docker compose up -d --build
 
 # rag 수집~적재 실행. ALL 은 feeds.yaml 전체 피드를 병렬 처리 (상세는 apps/rag/CLAUDE.md)
@@ -59,11 +62,16 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --retire-missing --dry-run
 (cd apps/rag && uv run python -m rag.remap_regions --dry-run)
 
-# fe 컨테이너 빌드 + 기동 (apps/fe/.env 필요. 로컬 http://localhost:4000, prod :80)
+# be(앞단) / fe 컨테이너 빌드 + 기동. 둘 다 http://localhost:4000 (be 가 받아 fe 로 프록시), prod :80/:443
+docker compose up -d --build be
 docker compose up -d --build fe
 
-# fe 개발 서버 (apps/fe/.env 필요. 이 PC는 3000번대 포트가 Windows 예약이라 4000 사용, fe 컨테이너와 동시에 못 띄움)
-(cd apps/fe && npm run dev -- --port 4000)
+# be 안에서 composer / artisan (호스트에 PHP 설치 안 함)
+docker compose exec be php artisan route:list
+
+# fe 개발 서버(hot reload). be 컨테이너가 4000 을 쓰므로 4001 로 띄우고,
+# be 를 거쳐 보려면 apps/be/.env 에 FE_UPSTREAM=host.docker.internal:4001 후 be 재생성
+(cd apps/fe && npm run dev -- --port 4001)
 ```
 
 - 로컬 전용 compose 설정은 `docker-compose.override.yml`(gitignore 대상)에 둔다.

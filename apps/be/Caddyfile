@@ -1,0 +1,44 @@
+# FrankenPHP(Caddy) 설정. be 컨테이너가 서비스의 앞단이다.
+# - /api/*, /up, /sanctum/* 는 Laravel(Octane worker)이 처리한다.
+# - 그 외 요청(지도 화면, 정적 파일)은 fe 컨테이너(Next.js)로 프록시한다. 같은 도메인이라 CORS 가 필요 없다.
+# 원본은 vendor/laravel/octane/src/Commands/stubs/Caddyfile 이고, {$CADDY_*}·{$APP_*} 값은 octane:frankenphp 가 채운다.
+# SERVER_NAME, FE_UPSTREAM 은 apps/be/.env 에서 온다.
+#   SERVER_NAME=:80          → HTTP 만 (로컬)
+#   SERVER_NAME=example.com  → Caddy 가 인증서를 자동 발급해 HTTPS 로 서비스 (prod)
+{
+	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+
+	frankenphp {
+		worker {
+			file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+			{$CADDY_SERVER_WORKER_DIRECTIVE}
+			{$CADDY_SERVER_WATCH_DIRECTIVES}
+		}
+	}
+}
+
+# http://localhost 는 컨테이너 healthcheck(curl http://localhost/up)용. SERVER_NAME 이 도메인이어도 HTTP 로 응답한다.
+{$SERVER_NAME::80}, http://localhost {
+	log {
+		level {$CADDY_SERVER_LOG_LEVEL}
+		format json
+	}
+
+	encode zstd br gzip
+
+	@laravel path /api/* /up /sanctum/*
+
+	handle @laravel {
+		root * "{$APP_PUBLIC_PATH}"
+
+		php_server {
+			index frankenphp-worker.php
+			try_files {path} frankenphp-worker.php
+			resolve_root_symlink
+		}
+	}
+
+	handle {
+		reverse_proxy {$FE_UPSTREAM:fe:3000}
+	}
+}

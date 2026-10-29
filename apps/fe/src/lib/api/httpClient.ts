@@ -30,7 +30,8 @@ type QueryParams = Record<string, string | number | undefined>;
  * @throws ApiError 응답 코드가 200번대가 아닐 때
  */
 export async function getJson<Response>(path: string, params: QueryParams = {}): Promise<Response> {
-  const url = new URL(config.apiBaseUrl + path);
+  // apiBaseUrl 이 "/api/v1" 처럼 상대 경로면 지금 페이지 주소(같은 도메인, be 의 Caddy 가 앞단)를 기준으로 붙인다
+  const url = new URL(config.apiBaseUrl + path, window.location.origin);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));

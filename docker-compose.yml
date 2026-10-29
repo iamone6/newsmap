@@ -48,9 +48,46 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Seoul
+    # 호스트에 직접 열지 않는다. 화면 요청은 be(FrankenPHP/Caddy)가 받아 여기로 프록시한다 (apps/be/Caddyfile).
+    expose:
+      - "3000"
+
+  be:
+    build:
+      context: ./apps/be
+      dockerfile: ../../dockerfiles/be.dockerfile
+      target: prod
+    image: newsmap-be:0.1.0
+    restart: unless-stopped
+    env_file:
+      - ./apps/be/.env
+    environment:
+      TZ: Asia/Seoul
+      DB_HOST: db
     ports:
-      # prod 는 80 으로 접근한다. 로컬은 docker-compose.override.yml 에서 4000 으로 바꾼다.
-      - "80:3000"
+      # 서비스 앞단. /api/* 는 Laravel, 나머지는 fe 로 넘긴다. 로컬은 docker-compose.override.yml 에서 4000 으로 바꾼다.
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      # Caddy 가 자동 발급한 인증서와 설정을 컨테이너를 다시 만들어도 유지한다
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      db:
+        condition: service_healthy
+      fe:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/up > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 secrets:
   # NEXT_PUBLIC_* 는 빌드 시점에 번들로 박히므로 apps/fe/.env 를 빌드 때만 넘긴다 (dockerfiles/fe.dockerfile 참고)
