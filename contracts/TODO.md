@@ -4,7 +4,7 @@
 
 - [ ] github CI/CD to Vultr - be 기초 작성 후 진행
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
-- [ ] 썸네일 크기: rag 가 이미지 width/height 를 수집해 `article_images` 에 저장 → API `thumbnail` 을 다시 채움
+- [ ] 썸네일 이미지 캐시 보존: fe 컨테이너의 `/_next/image` 디스크 캐시(`.next/cache/images`)는 컨테이너를 다시 만들면 사라진다. prod 에서 볼륨으로 둘지 결정
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`
 - [ ] 바다·섬(`SEA_*`, `ISL_*`): rag 분류 규칙과 저장 방식 결정 → `/stats/regions`, `/regions/{code}/articles`
 - [ ] 관심 지역: `favorite_regions` 테이블(schema.sql) + `/me/favorite-regions` 구현

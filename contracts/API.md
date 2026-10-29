@@ -9,7 +9,7 @@ Base URL: `/api/v1` · JSON only · 인증: Laravel Sanctum Bearer 토큰 (`Auth
 | 항목 | v1 동작 |
 |---|---|
 | `view_count`, `sort=popular` | `view_count` 는 응답에서 뺀다. `sort=popular` 은 받되 `latest` 와 같게 정렬한다 |
-| 목록의 `thumbnail` | 이미지 크기(width/height)가 없어 `null` 로 응답한다 |
+| 목록의 `thumbnail` | `url` 만 주고 `width`·`height` 는 `null` 이다(이미지 크기를 아직 저장하지 않음). 썸네일 이미지가 없는 기사는 `thumbnail` 자체가 `null` |
 | `/regions` 의 `center` | 응답에서 뺀다(fe 는 TopoJSON 에서 중심을 계산한다) |
 | 바다(`SEA_*`)·섬(`ISL_*`) | `/stats/regions` 응답에 넣지 않는다. 지역 코드로 받으면 404 |
 | `GET /articles/{id}` | 구현하지 않는다(fe 미사용) |
@@ -194,7 +194,8 @@ v1 응답에는 `favorite_region_count` 가 없다(관심 지역 미구현).
   }
 }
 ```
-- `thumbnail.width/height` 필수 — 프론트가 이 값으로 가로 40% 제한 / 세로 1:2 초과 축소를 레이아웃 시프트 없이 계산.
+- `thumbnail.width/height` — 원본 크기(참고용). v1 은 `null`. 프론트는 크기와 관계없이 항목 폭 40%·16:9 상자에 잘라서(cover) 보여 준다.
+- `thumbnail.url` 은 절대 주소(http/https)만 준다. 상대 경로뿐인 기사는 `thumbnail` 이 `null`.
 - `thumbnail`이 없으면 `null`.
 - `excerpt`는 서버에서 HTML 제거 후 120자 자르기 (PC만 표시).
 - `meta.region` 은 목록 헤더("강남구 · 37건")용 커스텀 필드 → `->additional(['meta' => [...]])`.
@@ -308,3 +309,4 @@ v1 응답에는 `favorite_region_count` 가 없다(관심 지역 미구현).
 - 바다·섬 클릭: 목록 API 를 부르지 않고 패널에 "준비 중인 지역" 안내를 띄운다. 지도에는 0건 색으로 그린다.
 - `region` 이 `null` 인 기사: 목록에서는 지역 태그를 빼고, 티커에서는 지역 선택 대신 `source_url` 을 새 창으로 연다.
 - `meta.search_type` 이 `bm25` 면 건수 옆에 "(키워드 검색)"을 표시한다.
+- 썸네일은 항목 폭 40%·16:9 고정 상자에 잘라서 보여 준다. 이미지는 fe(Next.js `/_next/image`)가 언론사에서 받아 줄이고 디스크에 캐시한다. 불러오지 못하면 썸네일 자리를 숨긴다.

@@ -104,13 +104,14 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
   - "인기순"을 숨겼다. `ArticleSort`·`sort` 파라미터는 조회수가 생기면 다시 쓰려고 남겨 뒀다.
   - 바다·섬을 클릭하면 안내만 띄운다(`geo.ts` 의 `isAdminLevel`).
   - `region`·`thumbnail` 이 null 인 경우를 처리했다.
+  - 썸네일은 항목 폭 40%·16:9 고정 상자에 cover 로 보여 준다(원본 크기 무시). `next/image` 가 `/_next/image` 에서 줄이고 디스크에 캐시한다. 언론사 호스트가 많아 `remotePatterns` 는 모든 http/https 를 허용하고, 대신 `imageSizes`·`qualities` 를 좁혀 둔다(`next.config.ts`). 로드 실패면 자리를 숨긴다.
   - 429 문구를 바꿔 보여 준다.
 - **mock**: 응답 모양을 v1 과 같게 맞췄다.
   - `view_count` 를 뺐다.
   - 열 개 중 하나는 `region: null` 이다.
   - 바다·섬은 통계에 없고 목록은 404 다.
   - 검색하면 `search_type` 을 준다.
-  - 썸네일은 레이아웃 확인용으로 남겼다. 실제 v1 은 항상 null 이다.
+  - 썸네일은 v1 처럼 크기를 null 로 주고, 원본 비율은 여러 가지로 섞어 잘림을 확인한다.
 - **실제 API 로 확인하는 법**: `.env` 를 고치지 않고 `NEXT_PUBLIC_USE_MOCK_API=false npm run dev -- --port 4001` 로 띄운다. 나머지(`FE_UPSTREAM`)는 위 "명령" 절차와 같다.
 
 ### 주요 파일

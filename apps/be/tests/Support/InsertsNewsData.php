@@ -99,6 +99,22 @@ trait InsertsNewsData
     }
 
     /**
+     * 기사에 썸네일 이미지를 넣는다.
+     *
+     * @param  int  $articleId  기사 id
+     * @param  string  $imageUrl  이미지 주소
+     */
+    protected function insertThumbnail(int $articleId, string $imageUrl): void
+    {
+        DB::table('article_images')->insert([
+            'article_id' => $articleId,
+            'position' => 0,
+            'image_url' => $imageUrl,
+            'is_thumbnail' => true,
+        ]);
+    }
+
+    /**
      * 한 축만 1 인 단위 벡터. 같은 축끼리는 코사인 거리가 0 이다.
      *
      * @param  int  $axis  1 로 둘 축 번호

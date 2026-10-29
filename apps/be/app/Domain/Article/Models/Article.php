@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon $published_at
  * @property Carbon $created_at
  * @property-read ArticleRegion|null $primaryRegion
+ * @property-read ArticleImage|null $thumbnail
  */
 class Article extends Model
 {
@@ -53,14 +54,24 @@ class Article extends Model
     }
 
     /**
-     * 목록 응답에 필요한 관계(대표 지역과 그 지역 마스터)를 함께 읽는다.
+     * 썸네일 이미지 (article_images.is_thumbnail, 기사당 최대 1개).
+     *
+     * @return HasOne<ArticleImage, $this>
+     */
+    public function thumbnail(): HasOne
+    {
+        return $this->hasOne(ArticleImage::class)->where('is_thumbnail', true);
+    }
+
+    /**
+     * 목록 응답에 필요한 관계(대표 지역과 그 지역 마스터, 썸네일)를 함께 읽는다.
      *
      * @param  Builder<Article>  $query
      */
     #[Scope]
     protected function withListRelations(Builder $query): void
     {
-        $query->with(['primaryRegion.sidoRegion', 'primaryRegion.sigunguRegion', 'primaryRegion.emdRegion']);
+        $query->with(['primaryRegion.sidoRegion', 'primaryRegion.sigunguRegion', 'primaryRegion.emdRegion', 'thumbnail']);
     }
 
     /**

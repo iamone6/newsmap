@@ -38,7 +38,7 @@ const SEA_TITLES = [
 const EXCERPT =
   "관계 부처와 지자체는 이번 결정으로 생활권 전반에 영향이 있을 것으로 보고, 후속 절차와 일정 조정에 대한 세부 계획을 이달 안에 공개하기로 했다. 현장에서는 기대와 우려가 함께 나온다.";
 
-/** 썸네일 가로×세로 후보. 세로로 긴 사진도 섞어서 레이아웃 규칙을 확인할 수 있게 한다 */
+/** 썸네일 원본 가로×세로 후보. 세로로 긴 사진도 섞어서 16:9 상자에 잘려 들어가는지 확인할 수 있게 한다 */
 const THUMBNAIL_SIZES: [number, number][] = [
   [1600, 900], [2000, 1000], [1400, 933], [1200, 1500], [1000, 2400], [1600, 700], [900, 1600],
 ];
@@ -122,9 +122,9 @@ export function mockArticlesOf(region: RegionRef): ArticleListItem[] {
   const articles: ArticleListItem[] = [];
   for (let index = 0; index < count; index++) {
     const [width, height] = THUMBNAIL_SIZES[randomInt(random, 0, THUMBNAIL_SIZES.length - 1)];
-    // 여섯 개 중 하나 정도는 썸네일이 없는 기사로 만든다
+    // 여섯 개 중 하나 정도는 썸네일이 없는 기사로 만든다. 크기는 v1 처럼 null 로 준다
     const thumbnail: Thumbnail | null =
-      random() < 0.17 ? null : { url: placeholderImage(width, height), width, height };
+      random() < 0.17 ? null : { url: placeholderImage(width, height), width: null, height: null };
     const publishedAt = new Date(now - random() * 30 * ONE_DAY_MS);
 
     articles.push({

@@ -45,16 +45,19 @@ export interface RegionStatsResponse {
   };
 }
 
-/** 기사 썸네일. width/height 는 레이아웃 계산에 꼭 필요하다 */
+/**
+ * 기사 썸네일. 화면은 원본 크기와 관계없이 목록 폭 40%·16:9 상자에 잘라서 보여 준다.
+ * v1 은 이미지 크기를 저장하지 않아 width/height 가 null 이다.
+ */
 export interface Thumbnail {
   url: string;
-  width: number;
-  height: number;
+  width: number | null;
+  height: number | null;
 }
 
 /**
  * GET /regions/{code}/articles 의 목록 항목 하나.
- * v1 에는 view_count 가 없고 thumbnail 은 항상 null 이다 (API.md "v1 구현 범위").
+ * v1 에는 view_count 가 없고 thumbnail 의 width/height 는 null 이다 (API.md "v1 구현 범위").
  */
 export interface ArticleListItem {
   id: number;

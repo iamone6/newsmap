@@ -50,6 +50,9 @@ class ArticleApiTest extends TestCase
             publishedAt: '2026-10-28 11:00:00+09',
             embeddingAxis: 3,
         );
+        $this->insertThumbnail($this->maetanArticleId, 'https://example.test/images/maetan.jpg');
+        // 상대 경로 썸네일은 쓸 수 없어 thumbnail 이 null 로 나와야 한다
+        $this->insertThumbnail($this->suwonArticleId, '/assets/share_logo.png');
     }
 
     /**
@@ -61,7 +64,8 @@ class ArticleApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.*.id', [$this->maetanArticleId, $this->suwonArticleId])
             ->assertJsonPath('data.0.region', ['code' => '4111751000', 'name' => '매탄1동', 'level' => 'emd'])
-            ->assertJsonPath('data.0.thumbnail', null)
+            ->assertJsonPath('data.0.thumbnail', ['url' => 'https://example.test/images/maetan.jpg', 'width' => null, 'height' => null])
+            ->assertJsonPath('data.1.thumbnail', null)
             ->assertJsonPath('data.0.published_at', '2026-10-28T10:00:00+09:00')
             ->assertJsonPath('data.0.source_url', 'https://example.test/article/'.md5('매탄동 재개발 조합 설립 인가'))
             ->assertJsonPath('meta.region', ['code' => '41110', 'name' => '수원시', 'level' => 'sigungu'])

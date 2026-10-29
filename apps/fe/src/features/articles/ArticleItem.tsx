@@ -1,22 +1,36 @@
+"use client";
+
+import Image from "next/image";
+import { useState } from "react";
 import { Tag } from "@/components/ui/Tag";
 import type { ArticleListItem, Thumbnail } from "@/lib/api/types";
 import { formatDate } from "@/lib/format";
 
-/** 썸네일 기본 폭 (목록 항목 폭의 %) */
-const THUMBNAIL_WIDTH_PERCENT = 40;
-/** 세로/가로 비율이 이 값을 넘으면(1:2 보다 길쭉하면) 썸네일을 더 줄인다 */
-const MAX_PORTRAIT_RATIO = 2;
-
 /**
- * 썸네일 폭(%)을 계산한다.
- * 기본은 40%. 세로로 아주 긴 사진은 높이가 너무 커지지 않게 비율만큼 폭을 줄인다.
- * @param thumbnail 썸네일 정보 (width/height 필수)
- * @returns 폭(%)
+ * 기사 썸네일. 항목 폭의 40%, 16:9 상자에 잘라서(cover) 보여 준다.
+ * 원본 크기가 기사마다 달라도 목록 모양이 같도록 상자 크기를 고정한다.
+ * 이미지는 next/image 가 서버(/_next/image)에서 줄이고 캐시한다 (next.config.ts 의 images).
+ * 이미지를 불러오지 못하면 썸네일 자리를 숨긴다.
+ * @param props.thumbnail 썸네일 정보 (width/height 는 쓰지 않는다)
+ * @returns 썸네일. 불러오기에 실패하면 null
  */
-function thumbnailWidthPercent(thumbnail: Thumbnail): number {
-  const ratio = thumbnail.height / thumbnail.width;
-  if (ratio <= MAX_PORTRAIT_RATIO) return THUMBNAIL_WIDTH_PERCENT;
-  return (THUMBNAIL_WIDTH_PERCENT * MAX_PORTRAIT_RATIO) / ratio;
+function ArticleThumbnail({ thumbnail }: { thumbnail: Thumbnail }) {
+  const [hasFailed, setHasFailed] = useState(false);
+  if (hasFailed) return null;
+
+  return (
+    <div className="washed relative aspect-video w-[40%] flex-none overflow-hidden rounded-[12px] bg-neutral-200">
+      <Image
+        src={thumbnail.url}
+        alt=""
+        fill
+        // 패널 폭: PC 400px(항목 안쪽 약 350px → 40% ≈ 140px), 모바일 화면의 90%(→ 약 36vw)
+        sizes="(max-width: 768px) 36vw, 145px"
+        onError={() => setHasFailed(true)}
+        className="object-cover"
+      />
+    </div>
+  );
 }
 
 /**
@@ -32,24 +46,7 @@ export function ArticleItem({ article }: { article: ArticleListItem }) {
       rel="noopener noreferrer"
       className="flex items-start gap-3 px-4 py-3 hover:bg-accent/8 [&+&]:border-t [&+&]:border-ink/8"
     >
-      {article.thumbnail && (
-        <div
-          className="washed flex-none overflow-hidden rounded-[16px] bg-neutral-200"
-          style={{ width: `${thumbnailWidthPercent(article.thumbnail)}%` }}
-        >
-          {/* 언론사마다 이미지 주소가 달라 next/image 대신 일반 img 를 쓴다.
-              width/height 를 주면 이미지가 오기 전에도 자리를 잡아 화면이 덜컹거리지 않는다. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={article.thumbnail.url}
-            width={article.thumbnail.width}
-            height={article.thumbnail.height}
-            alt=""
-            loading="lazy"
-            className="h-auto w-full"
-          />
-        </div>
-      )}
+      {article.thumbnail && <ArticleThumbnail thumbnail={article.thumbnail} />}
       <div className="min-w-0 flex-1">
         <h5 className="m-0 text-[13.5px] leading-snug font-bold text-pretty">{article.title}</h5>
         <div className="mt-1.5 flex items-center gap-2 text-[10.5px] text-ink/50">
