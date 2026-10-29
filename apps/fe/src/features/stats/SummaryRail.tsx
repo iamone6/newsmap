@@ -33,13 +33,13 @@ export function SummaryRail({ summary }: { summary: StatsSummary | null }) {
       <div className="flex flex-col gap-1.5 max-md:hidden">
         <div className="text-[10px] tracking-[.1em] text-accent-700 uppercase">전국 현황</div>
         <div className="flex items-baseline gap-2">
-          <span className="text-[22px] leading-none font-bold">{show(summary?.total_posts)}</span>
+          <span className="text-[22px] leading-none font-bold">{show(summary?.total_articles)}</span>
           <span className="text-[10px] text-ink/55">건</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <StatBox value={show(summary?.today_posts)} label="오늘 등록" />
+        <StatBox value={show(summary?.today_articles)} label="오늘 등록" />
         <StatBox value={show(summary?.active_regions)} label="활성 지역" />
       </div>
 

@@ -26,7 +26,7 @@ export function MapTooltip({ hover, stat }: { hover: MapHover | null; stat: Regi
     >
       <div className="flex items-center gap-2 text-[13px] font-bold">
         {hover.name}
-        <em className="rounded-full bg-accent px-2 py-px text-[11px] not-italic">{stat?.post_count ?? 0}</em>
+        <em className="rounded-full bg-accent px-2 py-px text-[11px] not-italic">{stat?.article_count ?? 0}</em>
       </div>
       {stat?.latest_title && <div className="mt-1 text-[11px] opacity-75">최신 · {stat.latest_title}</div>}
     </div>

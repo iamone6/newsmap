@@ -9,11 +9,11 @@ import { config } from "@/lib/config";
 import { getJson } from "./httpClient";
 import { mockApi } from "./mock/mockApi";
 import type {
-  LatestPost,
+  ArticleListItem,
+  LatestArticle,
   PaginatedResponse,
-  PostListItem,
+  RegionArticlesQuery,
   RegionLevel,
-  RegionPostsQuery,
   RegionStatsResponse,
   StatsSummary,
 } from "./types";
@@ -34,19 +34,19 @@ export interface NewsApi {
   getRegionStats(level: RegionLevel): Promise<RegionStatsResponse>;
 
   /**
-   * 지역 기사 목록 (GET /regions/{code}/posts)
+   * 지역 기사 목록 (GET /regions/{code}/articles)
    * @param code 지역 코드
    * @param query 정렬·검색어·페이지
    * @returns 페이지 단위 기사 목록
    */
-  getRegionPosts(code: string, query: RegionPostsQuery): Promise<PaginatedResponse<PostListItem>>;
+  getRegionArticles(code: string, query: RegionArticlesQuery): Promise<PaginatedResponse<ArticleListItem>>;
 
   /**
-   * 전국 최신 기사 (GET /posts/latest). 하단 티커용
+   * 전국 최신 기사 (GET /articles/latest). 하단 티커용
    * @param limit 가져올 개수
    * @returns 최신순 기사 목록
    */
-  getLatestPosts(limit: number): Promise<LatestPost[]>;
+  getLatestArticles(limit: number): Promise<LatestArticle[]>;
 }
 
 /** 실제 be 를 호출하는 구현 */
@@ -60,8 +60,8 @@ const realApi: NewsApi = {
     return getJson<RegionStatsResponse>("/stats/regions", { level });
   },
 
-  getRegionPosts(code, query) {
-    return getJson<PaginatedResponse<PostListItem>>(`/regions/${encodeURIComponent(code)}/posts`, {
+  getRegionArticles(code, query) {
+    return getJson<PaginatedResponse<ArticleListItem>>(`/regions/${encodeURIComponent(code)}/articles`, {
       sort: query.sort,
       q: query.q,
       page: query.page,
@@ -69,8 +69,8 @@ const realApi: NewsApi = {
     });
   },
 
-  async getLatestPosts(limit) {
-    const response = await getJson<{ data: LatestPost[] }>("/posts/latest", { limit });
+  async getLatestArticles(limit) {
+    const response = await getJson<{ data: LatestArticle[] }>("/articles/latest", { limit });
     return response.data;
   },
 };

@@ -1,5 +1,5 @@
 import { Tag } from "@/components/ui/Tag";
-import type { PostListItem, Thumbnail } from "@/lib/api/types";
+import type { ArticleListItem, Thumbnail } from "@/lib/api/types";
 import { formatDate } from "@/lib/format";
 
 /** 썸네일 기본 폭 (목록 항목 폭의 %) */
@@ -21,29 +21,29 @@ function thumbnailWidthPercent(thumbnail: Thumbnail): number {
 
 /**
  * 기사 목록의 항목 하나. 누르면 원문 기사를 새 창(탭)으로 연다.
- * @param props.post 기사
+ * @param props.article 기사
  * @returns 기사 링크
  */
-export function PostItem({ post }: { post: PostListItem }) {
+export function ArticleItem({ article }: { article: ArticleListItem }) {
   return (
     <a
-      href={post.source_url}
+      href={article.source_url}
       target="_blank"
       rel="noopener noreferrer"
       className="flex items-start gap-3 px-4 py-3 hover:bg-accent/8 [&+&]:border-t [&+&]:border-ink/8"
     >
-      {post.thumbnail && (
+      {article.thumbnail && (
         <div
           className="washed flex-none overflow-hidden rounded-[16px] bg-neutral-200"
-          style={{ width: `${thumbnailWidthPercent(post.thumbnail)}%` }}
+          style={{ width: `${thumbnailWidthPercent(article.thumbnail)}%` }}
         >
           {/* 언론사마다 이미지 주소가 달라 next/image 대신 일반 img 를 쓴다.
               width/height 를 주면 이미지가 오기 전에도 자리를 잡아 화면이 덜컹거리지 않는다. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={post.thumbnail.url}
-            width={post.thumbnail.width}
-            height={post.thumbnail.height}
+            src={article.thumbnail.url}
+            width={article.thumbnail.width}
+            height={article.thumbnail.height}
             alt=""
             loading="lazy"
             className="h-auto w-full"
@@ -51,13 +51,13 @@ export function PostItem({ post }: { post: PostListItem }) {
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <h5 className="m-0 text-[13.5px] leading-snug font-bold text-pretty">{post.title}</h5>
+        <h5 className="m-0 text-[13.5px] leading-snug font-bold text-pretty">{article.title}</h5>
         <div className="mt-1.5 flex items-center gap-2 text-[10.5px] text-ink/50">
-          <Tag>{post.region.name}</Tag>
-          <span>{formatDate(post.published_at)}</span>
+          {article.region && <Tag>{article.region.name}</Tag>}
+          <span>{formatDate(article.published_at)}</span>
         </div>
         {/* 요약문은 PC 에서만 두 줄까지 보여 준다 */}
-        <p className="mt-2 line-clamp-2 text-xs leading-normal opacity-75 max-md:hidden">{post.excerpt}</p>
+        <p className="mt-2 line-clamp-2 text-xs leading-normal opacity-75 max-md:hidden">{article.excerpt}</p>
       </div>
     </a>
   );

@@ -53,7 +53,7 @@ docker compose logs -f fe
 |---|---|
 | `NEXT_PUBLIC_KAKAO_MAP_JS_KEY` | 카카오 JavaScript 키. 비우면 SVG 지도. Kakao Developers 플랫폼 > Web 에 접속 도메인(예: `http://localhost:4000`, prod 도메인) 등록 필요. 미등록이면 SDK 가 401 `domain mismatched` 로 실패하고 SVG 로 대체된다 |
 | `NEXT_PUBLIC_API_BASE_URL` | be API 주소. be 가 앞단이라 같은 도메인 상대 경로 `/api/v1` (`httpClient.ts` 가 페이지 origin 기준으로 붙인다) |
-| `NEXT_PUBLIC_USE_MOCK_API` | `true` 면 be 대신 `src/lib/api/mock/` 가짜 데이터 사용 |
+| `NEXT_PUBLIC_USE_MOCK_API` | `true` 면 be 대신 `src/lib/api/mock/` 가짜 데이터 사용. 실제 be 와 연결하려면 `false` |
 
 `NEXT_PUBLIC_` 값은 빌드 시점에 코드에 박히므로, 바꾸면 dev 서버를 재시작한다(도커는 `--build` 로 다시 빌드). 환경변수는 `src/lib/config.ts`에서만 읽는다.
 
@@ -68,7 +68,7 @@ docker compose logs -f fe
 - `features/map/` 경계 데이터(`geo.ts`), 지도 엔진 2종(`svg/`, `kakao/`), 지도 위 UI
   - 엔진은 "React 컴포넌트(…Engine.tsx) + DOM 을 직접 그리는 클래스(…Renderer.ts)"로 나눈다. 두 엔진은 `MapEngineProps`/`MapEngineHandle`을 똑같이 맞춘다.
   - 카카오 키가 있으면 카카오맵이 기본이고, 없거나 SDK 로드에 실패하면 SVG 로 대체한다(`MapStage.tsx`).
-- `features/posts/` 오른쪽 기사 목록 패널. 기사 클릭은 `source_url`을 새 창으로 연다.
+- `features/articles/` 오른쪽 기사 목록 패널. 기사 클릭은 `source_url`을 새 창으로 연다.
 - `features/stats/` 왼쪽 요약 레일, 하단 티커, 통계 훅
 - `features/app/NewsMapApp.tsx` 화면 조립과 공유 상태(단계·선택 지역·호버)
 - `components/ui/` 디자인 시스템 기본 요소(Button, Tag, TextInput)
@@ -96,6 +96,23 @@ docker compose logs -f fe
   - `<html suppressHydrationWarning>`: 브라우저 확장(HWP 뷰어)이 `<html>`에 속성을 붙여서 나던 hydration 경고 대응.
   - `.gitignore`: `.env*` 무시 + `!.env.example`, `/.cache/`(경계 원본) 무시. `public/geo/*.topo.json`은 커밋한다.
 
+## 작업 이력과 결정 (2026-10-30) — 실제 API 연결
+be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요약·티커·지역 목록·검색(hybrid)을 확인했다.
+- **경로·필드**: `/regions/{code}/articles`, `/articles/latest`, `total_articles`·`today_articles`·`article_count`.
+- **이름 통일**: fe 내부 이름도 Post 에서 Article 로 바꿨다(`features/articles/`, `ArticleListItem`, `useRegionArticles` 등).
+- **v1 범위 대응**: 동작은 API.md "v1 동안의 프론트 동작"에 정리했다.
+  - "인기순"을 숨겼다. `ArticleSort`·`sort` 파라미터는 조회수가 생기면 다시 쓰려고 남겨 뒀다.
+  - 바다·섬을 클릭하면 안내만 띄운다(`geo.ts` 의 `isAdminLevel`).
+  - `region`·`thumbnail` 이 null 인 경우를 처리했다.
+  - 429 문구를 바꿔 보여 준다.
+- **mock**: 응답 모양을 v1 과 같게 맞췄다.
+  - `view_count` 를 뺐다.
+  - 열 개 중 하나는 `region: null` 이다.
+  - 바다·섬은 통계에 없고 목록은 404 다.
+  - 검색하면 `search_type` 을 준다.
+  - 썸네일은 레이아웃 확인용으로 남겼다. 실제 v1 은 항상 null 이다.
+- **실제 API 로 확인하는 법**: `.env` 를 고치지 않고 `NEXT_PUBLIC_USE_MOCK_API=false npm run dev -- --port 4001` 로 띄운다. 나머지(`FE_UPSTREAM`)는 위 "명령" 절차와 같다.
+
 ### 주요 파일
 | 파일 | 역할 |
 |---|---|
@@ -106,7 +123,7 @@ docker compose logs -f fe
 | `src/features/map/kakao/loadKakaoSdk.ts` | SDK 1회 로드(9초 타임아웃) |
 | `src/features/map/geo.ts` | TopoJSON 로드·캐시, 바다·섬, 코드 → 단위·경로 |
 | `src/features/map/colors.ts` | 지도 색, 기사 수 → 색 (API `meta.legend` 구간) |
-| `src/features/posts/RegionPostsPanel.tsx`, `useRegionPosts.ts` | 목록 패널, 정렬·검색(300ms 디바운스)·페이지 |
+| `src/features/articles/RegionArticlesPanel.tsx`, `useRegionArticles.ts` | 목록 패널, 검색(300ms 디바운스)·페이지, 바다·섬 안내 |
 | `src/features/stats/useStats.ts` | 요약·티커·지역 통계(단계별 1회 호출 후 캐시) |
 | `src/lib/api/newsApi.ts`, `types.ts`, `httpClient.ts` | API 함수·타입·fetch 래퍼 |
 | `scripts/build-geo.mjs` | 경계 TopoJSON 생성 |

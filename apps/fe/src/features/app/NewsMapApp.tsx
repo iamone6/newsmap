@@ -1,27 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RegionArticlesPanel } from "@/features/articles/RegionArticlesPanel";
 import { Breadcrumbs, type Crumb } from "@/features/map/Breadcrumbs";
-import { regionPathOf } from "@/features/map/geo";
+import { isAdminLevel, regionPathOf } from "@/features/map/geo";
 import { LevelChip } from "@/features/map/LevelChip";
 import { MapStage } from "@/features/map/MapStage";
 import { MapTooltip } from "@/features/map/MapTooltip";
 import type { MapEngineHandle, MapHover, MapLevel } from "@/features/map/types";
 import { ZoomControls } from "@/features/map/ZoomControls";
-import { RegionPostsPanel } from "@/features/posts/RegionPostsPanel";
 import { LatestTicker } from "@/features/stats/LatestTicker";
 import { SummaryRail } from "@/features/stats/SummaryRail";
 import { useRegionStats, useSummaryStats } from "@/features/stats/useStats";
 import type { RegionRef } from "@/lib/api/types";
-
-/**
- * 행정구역(시도·시군구·읍면동)인지 확인한다.
- * @param region 확인할 지역
- * @returns 행정구역이면 true, 바다·섬이면 false
- */
-function isAdminRegion(region: RegionRef): boolean {
-  return region.level === "sido" || region.level === "sigungu" || region.level === "emd";
-}
 
 /**
  * NewsMap 화면 전체를 조립하는 최상위 컴포넌트.
@@ -41,7 +32,7 @@ export function NewsMapApp() {
   /** 선택한 지역의 경로. 어떤 지역의 경로인지 code 와 함께 보관한다 */
   const [regionPath, setRegionPath] = useState<{ code: string; items: Crumb[] } | null>(null);
 
-  const { summary, latestPosts } = useSummaryStats();
+  const { summary, latestArticles } = useSummaryStats();
   const { statsByCode, legend } = useRegionStats(level);
 
   // 지역이 선택되면 상위 지역 이름을 찾아 경로를 만든다 (경계 파일을 읽어야 해서 비동기)
@@ -67,7 +58,7 @@ export function NewsMapApp() {
   const handleLevelChange = (nextLevel: MapLevel) => {
     setLevel(nextLevel);
     setSelectedRegion((current) =>
-      current && isAdminRegion(current) && current.level !== nextLevel ? null : current,
+      current && isAdminLevel(current.level) && current.level !== nextLevel ? null : current,
     );
   };
 
@@ -106,10 +97,10 @@ export function NewsMapApp() {
       />
 
       <SummaryRail summary={summary} />
-      <LatestTicker posts={latestPosts} onSelectRegion={selectByCode} />
+      <LatestTicker articles={latestArticles} onSelectRegion={selectByCode} />
       <MapTooltip hover={hover} stat={hover ? statsByCode.get(hover.code) : undefined} />
 
-      <RegionPostsPanel region={selectedRegion} parentNames={parentNames} onClose={() => setSelectedRegion(null)} />
+      <RegionArticlesPanel region={selectedRegion} parentNames={parentNames} onClose={() => setSelectedRegion(null)} />
     </div>
   );
 }

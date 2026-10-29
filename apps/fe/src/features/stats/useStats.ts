@@ -2,18 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LEGEND } from "@/features/map/colors";
 import type { MapLevel } from "@/features/map/types";
 import { newsApi } from "@/lib/api/newsApi";
-import type { LatestPost, RegionStat, RegionStatsResponse, StatsSummary } from "@/lib/api/types";
+import type { LatestArticle, RegionStat, RegionStatsResponse, StatsSummary } from "@/lib/api/types";
 
 /** 하단 티커에 보여 줄 최신 기사 수 */
-const TICKER_POST_COUNT = 16;
+const TICKER_ARTICLE_COUNT = 16;
 
 /**
  * 페이지가 열릴 때 한 번 불러오는 전국 요약과 최신 기사.
- * @returns summary(전국 현황), latestPosts(티커용 최신 기사)
+ * @returns summary(전국 현황), latestArticles(티커용 최신 기사)
  */
 export function useSummaryStats() {
   const [summary, setSummary] = useState<StatsSummary | null>(null);
-  const [latestPosts, setLatestPosts] = useState<LatestPost[]>([]);
+  const [latestArticles, setLatestArticles] = useState<LatestArticle[]>([]);
 
   useEffect(() => {
     newsApi
@@ -21,17 +21,17 @@ export function useSummaryStats() {
       .then(setSummary)
       .catch((error) => console.error("전국 현황을 불러오지 못했습니다", error));
     newsApi
-      .getLatestPosts(TICKER_POST_COUNT)
-      .then(setLatestPosts)
+      .getLatestArticles(TICKER_ARTICLE_COUNT)
+      .then(setLatestArticles)
       .catch((error) => console.error("최신 기사를 불러오지 못했습니다", error));
   }, []);
 
-  return { summary, latestPosts };
+  return { summary, latestArticles };
 }
 
 /**
  * 지도 색칠에 쓰는 지역별 기사 수.
- * - sido 응답에는 바다·섬도 들어 있으므로 sido 는 항상 불러 둔다.
+ * - sido 는 항상 불러 둔다 (계약상 sido 응답에 바다·섬이 들어간다. v1 be 는 아직 넣지 않아 바다·섬은 0건 색이 된다).
  * - 지금 단계(level) 응답을 sido 응답 위에 합쳐서 하나의 Map 으로 만든다.
  * - 한 번 받은 단계는 다시 부르지 않는다.
  * @param level 지금 지도 단계

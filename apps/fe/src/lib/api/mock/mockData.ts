@@ -4,7 +4,7 @@
  * 같은 지역 코드에는 항상 같은 기사 목록이 나오도록 "코드 문자열"을 씨앗(seed)으로 쓰는
  * 의사 난수를 사용한다. 그래야 새로고침해도 지도 색과 목록이 바뀌지 않는다.
  */
-import type { PostListItem, RegionRef, Thumbnail } from "@/lib/api/types";
+import type { ArticleListItem, RegionRef, Thumbnail } from "@/lib/api/types";
 
 /** 일반 지역 기사 제목 후보 */
 const LAND_TITLES = [
@@ -44,7 +44,7 @@ const THUMBNAIL_SIZES: [number, number][] = [
 ];
 
 /** 단위별 기사 수 범위 [최소, 최대] */
-const POST_COUNT_RANGE: Record<RegionRef["level"], [number, number]> = {
+const ARTICLE_COUNT_RANGE: Record<RegionRef["level"], [number, number]> = {
   sido: [3, 40],
   sigungu: [3, 18],
   emd: [0, 6],
@@ -100,26 +100,26 @@ function placeholderImage(width: number, height: number): string {
 }
 
 /** 지역 코드 → 만들어 둔 기사 목록 (같은 목록을 다시 만들지 않도록) */
-const postCache = new Map<string, PostListItem[]>();
+const articleCache = new Map<string, ArticleListItem[]>();
 
 /**
  * 지역 하나의 가짜 기사 목록을 만든다. 최신순으로 정렬되어 있다.
  * @param region 지역
  * @returns 기사 목록
  */
-export function mockPostsOf(region: RegionRef): PostListItem[] {
-  const cached = postCache.get(region.code);
+export function mockArticlesOf(region: RegionRef): ArticleListItem[] {
+  const cached = articleCache.get(region.code);
   if (cached) return cached;
 
   const random = createRandom(region.code);
   const titles = region.level === "sea" ? SEA_TITLES : LAND_TITLES;
-  const [minCount, maxCount] = POST_COUNT_RANGE[region.level];
+  const [minCount, maxCount] = ARTICLE_COUNT_RANGE[region.level];
   const count = randomInt(random, minCount, maxCount);
   const now = Date.now();
   // id 가 지역끼리 잘 겹치지 않도록 지역마다 다른 앞자리를 준다
   const idBase = randomInt(random, 1, 9000) * 1000;
 
-  const posts: PostListItem[] = [];
+  const articles: ArticleListItem[] = [];
   for (let index = 0; index < count; index++) {
     const [width, height] = THUMBNAIL_SIZES[randomInt(random, 0, THUMBNAIL_SIZES.length - 1)];
     // 여섯 개 중 하나 정도는 썸네일이 없는 기사로 만든다
@@ -127,19 +127,19 @@ export function mockPostsOf(region: RegionRef): PostListItem[] {
       random() < 0.17 ? null : { url: placeholderImage(width, height), width, height };
     const publishedAt = new Date(now - random() * 30 * ONE_DAY_MS);
 
-    posts.push({
+    articles.push({
       id: idBase + index,
       title: titles[randomInt(random, 0, titles.length - 1)],
       excerpt: EXCERPT,
       thumbnail,
-      region,
+      // 열 개 중 하나 정도는 대표 지역이 없는 기사로 만든다 (실제 API 에서도 region 이 null 일 수 있다)
+      region: random() < 0.1 ? null : region,
       source_url: `https://example.com/news/${region.code}/${index + 1}`,
-      view_count: randomInt(random, 120, 9900),
       published_at: publishedAt.toISOString(),
     });
   }
 
-  posts.sort((a, b) => b.published_at.localeCompare(a.published_at));
-  postCache.set(region.code, posts);
-  return posts;
+  articles.sort((a, b) => b.published_at.localeCompare(a.published_at));
+  articleCache.set(region.code, articles);
+  return articles;
 }

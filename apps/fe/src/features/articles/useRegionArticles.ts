@@ -1,17 +1,28 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "@/lib/api/httpClient";
 import { newsApi } from "@/lib/api/newsApi";
-import type { PaginatedResponse, PostListItem, PostSort } from "@/lib/api/types";
+import type { ArticleListItem, ArticleSort, PaginatedResponse } from "@/lib/api/types";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 /** 한 페이지에 보여 줄 기사 수 */
-export const POSTS_PER_PAGE = 5;
+export const ARTICLES_PER_PAGE = 5;
 /** 검색어 입력이 이 시간(ms) 동안 멈추면 검색한다 */
 const SEARCH_DELAY_MS = 300;
+
+/**
+ * 에러를 화면에 보여 줄 문구로 바꾼다. 요청 제한(429)은 be 문구가 영어라 우리말로 바꾼다.
+ * @param error 요청 중 난 에러
+ * @returns 안내 문구
+ */
+function errorMessageOf(error: Error): string {
+  if (error instanceof ApiError && error.status === 429) return "요청이 많습니다. 잠시 후 다시 시도해 주세요.";
+  return error.message;
+}
 
 /** 요청 한 번의 결과. requestKey 로 "어떤 조건의 결과인지" 기억한다 */
 interface FetchResult {
   requestKey: string;
-  response: PaginatedResponse<PostListItem> | null;
+  response: PaginatedResponse<ArticleListItem> | null;
   errorMessage: string | null;
 }
 
@@ -23,8 +34,8 @@ interface FetchResult {
  * @param regionCode 목록을 볼 지역 코드
  * @returns 목록 데이터, 로딩/에러 상태, 상태를 바꾸는 함수들
  */
-export function useRegionPosts(regionCode: string) {
-  const [sort, setSort] = useState<PostSort>("latest");
+export function useRegionArticles(regionCode: string) {
+  const [sort, setSort] = useState<ArticleSort>("latest");
   const [searchText, setSearchText] = useState("");
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<FetchResult | null>(null);
@@ -36,12 +47,12 @@ export function useRegionPosts(regionCode: string) {
     // 응답이 늦게 와서 그 사이 조건이 바뀌었다면 그 응답은 버린다
     let isStale = false;
     newsApi
-      .getRegionPosts(regionCode, { sort, q: query, page, perPage: POSTS_PER_PAGE })
+      .getRegionArticles(regionCode, { sort, q: query, page, perPage: ARTICLES_PER_PAGE })
       .then((response) => {
         if (!isStale) setResult({ requestKey, response, errorMessage: null });
       })
       .catch((error: Error) => {
-        if (!isStale) setResult({ requestKey, response: null, errorMessage: error.message });
+        if (!isStale) setResult({ requestKey, response: null, errorMessage: errorMessageOf(error) });
       });
     return () => {
       isStale = true;
@@ -58,7 +69,7 @@ export function useRegionPosts(regionCode: string) {
     searchText,
     page,
     /** 정렬을 바꾸면 1페이지로 돌아간다 */
-    changeSort(nextSort: PostSort) {
+    changeSort(nextSort: ArticleSort) {
       setSort(nextSort);
       setPage(1);
     },

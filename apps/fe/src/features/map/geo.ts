@@ -171,6 +171,16 @@ export function levelOfCode(code: string): RegionRef["level"] {
 }
 
 /**
+ * 행정구역 단위(시도·시군구·읍면동)인지 확인한다.
+ * v1 be 는 바다·섬 기사를 아직 다루지 않으므로, 목록 API 를 부를 수 있는지 판단할 때도 쓴다.
+ * @param level 지역 단위
+ * @returns 행정구역이면 true, 바다·섬이면 false
+ */
+export function isAdminLevel(level: RegionRef["level"]): level is MapLevel {
+  return level === "sido" || level === "sigungu" || level === "emd";
+}
+
+/**
  * 코드로 지도 위 지역(폴리곤 또는 섬)을 찾는다. 필요한 단계 경계를 자동으로 불러온다.
  * @param code 지역 코드
  * @returns 찾은 폴리곤/섬. 없으면 null

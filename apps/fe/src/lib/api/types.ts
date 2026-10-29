@@ -19,8 +19,8 @@ export interface RegionRef {
 
 /** GET /stats/summary 의 data */
 export interface StatsSummary {
-  total_posts: number;
-  today_posts: number;
+  total_articles: number;
+  today_articles: number;
   active_regions: number;
   updated_at: string;
 }
@@ -29,7 +29,7 @@ export interface StatsSummary {
 export interface RegionStat {
   code: string;
   name: string;
-  post_count: number;
+  article_count: number;
   /** 가장 최근 기사 제목. 기사가 없으면 null (지도 툴팁용) */
   latest_title: string | null;
 }
@@ -52,27 +52,38 @@ export interface Thumbnail {
   height: number;
 }
 
-/** GET /regions/{code}/posts 의 목록 항목 하나 */
-export interface PostListItem {
+/**
+ * GET /regions/{code}/articles 의 목록 항목 하나.
+ * v1 에는 view_count 가 없고 thumbnail 은 항상 null 이다 (API.md "v1 구현 범위").
+ */
+export interface ArticleListItem {
   id: number;
   title: string;
   excerpt: string;
   thumbnail: Thumbnail | null;
-  region: RegionRef;
+  /** 기사의 대표 지역. 지역이 판정되지 않은 기사는 null */
+  region: RegionRef | null;
   /** 원문 기사 주소. 클릭하면 새 창으로 연다 */
   source_url: string;
-  view_count: number;
   published_at: string;
 }
 
-/** GET /posts/latest 의 항목 하나 (하단 티커용) */
-export interface LatestPost {
+/** GET /articles/latest 의 항목 하나 (하단 티커용) */
+export interface LatestArticle {
   id: number;
   title: string;
   source_url: string;
-  region: RegionRef;
+  /** 기사의 대표 지역. 지역이 판정되지 않은 기사는 null */
+  region: RegionRef | null;
   published_at: string;
 }
+
+/**
+ * 검색 방식. q 가 있을 때만 응답 meta 에 들어 있다.
+ * - hybrid: BM25 + 벡터 검색
+ * - bm25: 쿼리 임베딩이 실패해 키워드 검색만 한 경우
+ */
+export type SearchType = "hybrid" | "bm25";
 
 /** Laravel 페이지네이션 응답 형식 */
 export interface PaginatedResponse<Item> {
@@ -93,15 +104,17 @@ export interface PaginatedResponse<Item> {
     path: string;
     /** 목록 헤더에 보여줄 지역 정보 (API.md 커스텀 필드) */
     region: RegionRef;
+    /** 검색 방식 (q 가 있을 때만) */
+    search_type?: SearchType;
   };
 }
 
-/** 목록 정렬 방식 */
-export type PostSort = "latest" | "popular";
+/** 목록 정렬 방식. v1 의 popular 는 latest 와 같게 정렬되어 화면에서는 쓰지 않는다 */
+export type ArticleSort = "latest" | "popular";
 
-/** GET /regions/{code}/posts 의 쿼리 파라미터 */
-export interface RegionPostsQuery {
-  sort: PostSort;
+/** GET /regions/{code}/articles 의 쿼리 파라미터 */
+export interface RegionArticlesQuery {
+  sort: ArticleSort;
   /** 검색어 (제목+본문). 빈 문자열이면 보내지 않는다 */
   q: string;
   page: number;

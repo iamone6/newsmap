@@ -1,19 +1,14 @@
 /**
  * be 없이 화면을 개발하기 위한 가짜 API.
  * newsApi.ts 의 NewsApi 와 같은 함수를 갖고, 응답 모양도 contracts/API.md 와 똑같이 만든다.
+ * "v1 구현 범위"도 실제 be 와 같게 따른다: 바다·섬은 통계에 없고 목록은 404, view_count 없음, region 은 null 일 수 있음.
  */
 import { DEFAULT_LEGEND } from "@/features/map/colors";
-import {
-  ISLAND_MARKERS,
-  SEA_FEATURES,
-  findRegion,
-  levelOfCode,
-  loadLevelFeatures,
-  toRegionRef,
-} from "@/features/map/geo";
+import { findRegion, isAdminLevel, levelOfCode, loadLevelFeatures, toRegionRef } from "@/features/map/geo";
+import { ApiError } from "@/lib/api/httpClient";
 import type { NewsApi } from "@/lib/api/newsApi";
-import type { PostListItem, RegionLevel, RegionRef, RegionStat } from "@/lib/api/types";
-import { mockPostsOf } from "./mockData";
+import type { ArticleListItem, RegionLevel, RegionRef, RegionStat } from "@/lib/api/types";
+import { mockArticlesOf } from "./mockData";
 
 /** 가짜 응답을 돌려주기 전에 기다리는 시간(ms). 실제 네트워크처럼 보이게 한다 */
 const FAKE_DELAY_MS = 150;
@@ -29,20 +24,14 @@ function wait(ms: number): Promise<void> {
 }
 
 /**
- * 단계별 지역 목록을 만든다. sido 단계에는 바다와 섬도 넣는다 (API.md 예시와 같게).
+ * 단계별 지역 목록을 만든다. v1 be 처럼 바다·섬은 넣지 않는다.
  * @param level 지역 단위
- * @returns 지역 목록
+ * @returns 지역 목록 (sea·island 단계는 빈 목록)
  */
 async function regionsOfLevel(level: RegionLevel): Promise<RegionRef[]> {
-  if (level === "sea") return SEA_FEATURES.map(toRegionRef);
-  if (level === "island") return ISLAND_MARKERS.map(toRegionRef);
-
+  if (!isAdminLevel(level)) return [];
   const features = await loadLevelFeatures(level);
-  const regions = features.map(toRegionRef);
-  if (level === "sido") {
-    regions.push(...SEA_FEATURES.map(toRegionRef), ...ISLAND_MARKERS.map(toRegionRef));
-  }
-  return regions;
+  return features.map(toRegionRef);
 }
 
 /**
@@ -51,12 +40,12 @@ async function regionsOfLevel(level: RegionLevel): Promise<RegionRef[]> {
  * @returns 기사 수와 최신 기사 제목
  */
 function statOf(region: RegionRef): RegionStat {
-  const posts = mockPostsOf(region);
+  const articles = mockArticlesOf(region);
   return {
     code: region.code,
     name: region.name,
-    post_count: posts.length,
-    latest_title: posts[0]?.title ?? null,
+    article_count: articles.length,
+    latest_title: articles[0]?.title ?? null,
   };
 }
 
@@ -64,16 +53,16 @@ export const mockApi: NewsApi = {
   async getSummary() {
     await wait(FAKE_DELAY_MS);
     const regions = await regionsOfLevel("sido");
-    const allPosts = regions.flatMap(mockPostsOf);
+    const allArticles = regions.flatMap(mockArticlesOf);
     const now = Date.now();
-    const isWithin = (post: PostListItem, days: number) =>
-      now - new Date(post.published_at).getTime() <= days * ONE_DAY_MS;
+    const isWithin = (article: ArticleListItem, days: number) =>
+      now - new Date(article.published_at).getTime() <= days * ONE_DAY_MS;
 
     return {
-      total_posts: allPosts.length,
-      today_posts: allPosts.filter((post) => isWithin(post, 1)).length,
+      total_articles: allArticles.length,
+      today_articles: allArticles.filter((article) => isWithin(article, 1)).length,
       // 최근 7일 안에 기사가 있는 지역 수
-      active_regions: regions.filter((region) => mockPostsOf(region).some((post) => isWithin(post, 7))).length,
+      active_regions: regions.filter((region) => mockArticlesOf(region).some((article) => isWithin(article, 7))).length,
       updated_at: new Date(now).toISOString(),
     };
   },
@@ -81,34 +70,32 @@ export const mockApi: NewsApi = {
   async getRegionStats(level) {
     await wait(FAKE_DELAY_MS);
     const stats = (await regionsOfLevel(level)).map(statOf);
-    const max = Math.max(0, ...stats.map((stat) => stat.post_count));
+    const max = Math.max(0, ...stats.map((stat) => stat.article_count));
     return { data: stats, meta: { level, max, legend: DEFAULT_LEGEND } };
   },
 
-  async getRegionPosts(code, query) {
+  async getRegionArticles(code, query) {
     await wait(FAKE_DELAY_MS);
+    // v1 be 는 바다·섬 코드에 404 를 준다
+    if (!isAdminLevel(levelOfCode(code))) throw new ApiError(404, "지역을 찾을 수 없습니다.");
     const found = await findRegion(code);
     const region: RegionRef = found ? toRegionRef(found) : { code, name: code, level: levelOfCode(code) };
 
     // 1) 검색어로 거르기 (실제 API 는 제목+본문을 보지만 가짜에서는 제목만)
-    let posts = mockPostsOf(region);
+    // 2) 정렬하기. v1 은 조회수가 없어 popular 도 최신순이다 (mockArticlesOf 가 이미 최신순)
+    let articles = mockArticlesOf(region);
     if (query.q) {
-      posts = posts.filter((post) => post.title.includes(query.q));
+      articles = articles.filter((article) => article.title.includes(query.q));
     }
 
-    // 2) 정렬하기
-    posts = [...posts].sort((a, b) =>
-      query.sort === "popular" ? b.view_count - a.view_count : b.published_at.localeCompare(a.published_at),
-    );
-
     // 3) 페이지 자르기
-    const total = posts.length;
+    const total = articles.length;
     const lastPage = Math.max(1, Math.ceil(total / query.perPage));
     const page = Math.min(query.page, lastPage);
     const start = (page - 1) * query.perPage;
-    const pageItems = posts.slice(start, start + query.perPage);
+    const pageItems = articles.slice(start, start + query.perPage);
 
-    const path = `mock://regions/${code}/posts`;
+    const path = `mock://regions/${code}/articles`;
     return {
       data: pageItems,
       links: {
@@ -126,23 +113,25 @@ export const mockApi: NewsApi = {
         total,
         path,
         region,
+        // 실제 API 처럼 검색할 때만 search_type 을 준다
+        ...(query.q ? { search_type: "hybrid" as const } : {}),
       },
     };
   },
 
-  async getLatestPosts(limit) {
+  async getLatestArticles(limit) {
     await wait(FAKE_DELAY_MS);
     const regions = await regionsOfLevel("sido");
     return regions
-      .flatMap(mockPostsOf)
+      .flatMap(mockArticlesOf)
       .sort((a, b) => b.published_at.localeCompare(a.published_at))
       .slice(0, limit)
-      .map((post) => ({
-        id: post.id,
-        title: post.title,
-        source_url: post.source_url,
-        region: post.region,
-        published_at: post.published_at,
+      .map((article) => ({
+        id: article.id,
+        title: article.title,
+        source_url: article.source_url,
+        region: article.region,
+        published_at: article.published_at,
       }));
   },
 };

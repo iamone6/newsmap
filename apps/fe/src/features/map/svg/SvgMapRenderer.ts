@@ -351,7 +351,7 @@ export class SvgMapRenderer {
    * @returns 기사 수 (통계가 없으면 0)
    */
   private countOf(code: string): number {
-    return this.stats.get(code)?.post_count ?? 0;
+    return this.stats.get(code)?.article_count ?? 0;
   }
 
   /**
