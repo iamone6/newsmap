@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Models\User;
+use App\Domain\Auth\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -12,6 +12,13 @@ use Illuminate\Support\Str;
  */
 class UserFactory extends Factory
 {
+    /**
+     * 모델이 App\Models 밖(App\Domain\Auth\Models)에 있어 직접 지정한다.
+     *
+     * @var class-string<User>
+     */
+    protected $model = User::class;
+
     /**
      * The current password being used by the factory.
      */

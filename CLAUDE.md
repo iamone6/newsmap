@@ -12,7 +12,7 @@
     - be 가 준비되기 전에는 `contracts/API.md` 모양의 mock 데이터로 동작한다(`NEXT_PUBLIC_USE_MOCK_API`). 구현·작업 이력은 `apps/fe/CLAUDE.md`.
 - **be/**
     - 백엔드 API. PHP/Laravel/FrankenPHP 기반. 지역기사 목록 및 하이브리드 검색(BM25+Vector) 수행
-    - PHP 8.5 + Laravel 13 + Octane(FrankenPHP worker) + Sanctum. 골격만 있고 엔드포인트는 미구현. 구현·명령은 `apps/be/CLAUDE.md`.
+    - PHP 8.5 + Laravel 13 + Octane(FrankenPHP worker) + Sanctum. `contracts/API.md` v1 엔드포인트(인증·지역·통계·기사 목록/검색) 구현됨. 구현·명령·테스트는 `apps/be/CLAUDE.md`.
 - **rag/**
     - 지역언론 RSS 수집 -> 전처리 및 메타데이터 추출, 행정동 단위 분류 -> 청킹 -> 임베딩 -> DB적재. 백엔드의 하이브리드 검색(BM25+Vector)및 지역별 기사 목록 출력을 위한 데이터 저장
     - Python/Langchain 기반

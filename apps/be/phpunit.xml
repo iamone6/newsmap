@@ -17,15 +17,30 @@
             <directory>app</directory>
         </include>
     </source>
+    <!--
+        테스트 DB: db 컨테이너의 newsmap_test (contracts/schema.sql 적용, apps/be/CLAUDE.md 참고).
+        컨테이너 환경변수(env_file)가 개발 DB 를 가리키므로 반드시 덮어쓴다.
+        Laravel 은 $_SERVER 를 먼저 읽어서 <env force> 만으로는 안 되고 <server> 도 같이 지정한다.
+        DB_HOST·DB_USERNAME·DB_PASSWORD 는 컨테이너 환경변수를 그대로 쓴다.
+    -->
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <server name="APP_ENV" value="testing"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="pgsql"/>
+        <server name="DB_DATABASE" value="newsmap_test"/>
+        <server name="DB_URL" value=""/>
+        <server name="DEEPINFRA_API_KEY" value="test-key"/>
+        <server name="RAG_EXCLUDE_WIRE" value="true"/>
+        <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-        <env name="DB_URL" value=""/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_DATABASE" value="newsmap_test" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="DEEPINFRA_API_KEY" value="test-key" force="true"/>
+        <env name="RAG_EXCLUDE_WIRE" value="true" force="true"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

@@ -14,7 +14,8 @@ Base URL: `/api/v1` · JSON only · 인증: Laravel Sanctum Bearer 토큰 (`Auth
 | 바다(`SEA_*`)·섬(`ISL_*`) | `/stats/regions` 응답에 넣지 않는다. 지역 코드로 받으면 404 |
 | `GET /articles/{id}` | 구현하지 않는다(fe 미사용) |
 | `/me/favorite-regions`, `/me` 의 `favorite_region_count` | 구현하지 않는다 |
-| `q` 검색 페이지네이션 | `search_chunks()` 결과(청크)를 기사 단위로 묶은 뒤 be 가 페이지를 자른다. `total` 은 묶인 기사 수 |
+| `q` 검색 페이지네이션 | `search_chunks()` 결과(청크 최대 300개)를 기사 단위로 묶은 뒤 be 가 페이지를 자른다. `total` 은 묶인 기사 수 |
+| 목록의 `region` | 대표 지역이 없거나 지역 마스터에 매칭되지 않은 기사는 `null` |
 
 ## 지역 코드 규칙
 
@@ -58,6 +59,8 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
 // 422
 { "message": "이메일 또는 비밀번호가 올바르지 않습니다.", "errors": { "email": ["이메일 또는 비밀번호가 올바르지 않습니다."] } }
 ```
+- `email` 은 이메일 형식을 검사하지 않는다(로컬 테스트 계정 id 가 `test`). 로그인은 이메일+IP 당 1분에 5번까지(아래 "요청 제한").
+- 회원가입 API 는 없다. 로컬 테스트 계정은 `TestUserSeeder` 로 만든다(`apps/be/CLAUDE.md`).
 
 ### POST /auth/logout → `204 No Content`
 
@@ -65,6 +68,7 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
 ```json
 { "data": { "id": 7, "name": "김민지", "email": "kim@example.com", "favorite_region_count": 3 } }
 ```
+v1 응답에는 `favorite_region_count` 가 없다(관심 지역 미구현).
 비로그인 → `401 { "message": "Unauthenticated." }` → 프론트는 `Guest` 표시.
 
 ---
@@ -116,7 +120,9 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
   }
 }
 ```
-`active_regions` = 최근 N일(기본 7) 기사이 있는 지역 수. 캐시 60초 권장.
+- `today_articles` = 오늘(KST 0시 이후) 발행된 기사 수. `updated_at` = 마지막으로 수집된 기사의 수집 시각.
+- `active_regions` = 최근 7일 기사가 있는 **시군구**(일반구 포함) 수.
+- 60초 캐시.
 
 ### GET /stats/regions?level=sido
 지도 색칠(지역색 = 기사 수)용. `parent` 주면 해당 지역 하위만.
@@ -133,7 +139,8 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
 ```
 - `latest_title`: 해당 지역의 가장 최근 기사 제목. 기사가 없으면 `null`. 지도 호버 툴팁("최신 · 제목")용.
 - `level=sido` 응답에는 바다(`SEA_*`)·섬(`ISL_*`)도 함께 넣는다. 프론트는 줌 단계와 관계없이 바다·섬 색칠에 sido 응답을 쓴다.
-- `parent`를 생략하면 그 단계의 전국 지역을 모두 준다(프론트는 화면에 보이는 영역을 그리기 위해 생략해서 호출한다).
+- `parent`를 생략하면 그 단계의 전국 지역을 모두 준다(프론트는 화면에 보이는 영역을 그리기 위해 생략해서 호출한다). `parent` 를 주면 손자까지 포함한 하위 지역 중 그 단계만 준다(예: 경기도 아래 sigungu = 시 + 일반구).
+- `article_count` 는 하위 지역 기사를 포함한다(`article_chunks.region_codes` 기준, 목록 API 의 `include_children=1` 건수와 같다). 기사가 없는 지역도 `0` 으로 넣는다. 60초 캐시.
 
 ---
 
@@ -152,7 +159,8 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
 - `{code}`를 10자리로 변환한다(위 "API 코드 ↔ DB 코드 변환").
 - `include_children=1`: `article_chunks.region_codes && ARRAY[변환코드]`로 거른다(= `search_chunks()`의 `p_region_codes`). `region_codes`는 기사 지역을 상위 단위까지 펼쳐 저장하므로, 시도로 물으면 그 아래 시군구·읍면동 기사까지 잡힌다.
 - `include_children=0`: `article_regions`에서 해당 depth 컬럼(`sido_code`/`sigungu_code`/`emd_code`)이 정확히 일치하고 그보다 아래 depth는 NULL인 기사만 고른다(그 depth로만 판정된 기사).
-- `q`가 있으면 `search_chunks()`(BM25+벡터 RRF)를 쓰고, 없으면 `published_at`/`view_count` 정렬 목록을 쓴다.
+- `q`가 있으면 `search_chunks()`(BM25+벡터 RRF)를 쓰고 **관련도 순**으로 준다(`sort` 무시). 없으면 `published_at` 최신순 목록을 쓴다.
+- `q` 가 있을 때만 `meta.search_type` 을 준다: `hybrid`(BM25+벡터) 또는 `bm25`(쿼리 임베딩 호출이 실패해 키워드 검색만 한 경우).
 
 ```json
 {
@@ -274,6 +282,17 @@ DB(`contracts/schema.sql`의 `regions.code`)와 rag는 행정안전부 행정동
 // 429
 { "message": "Too Many Attempts." }
 ```
+
+## 요청 제한 (429)
+1분당 횟수. 넘으면 `429 { "message": "Too Many Attempts." }` 와 `Retry-After` 헤더를 준다. 모든 응답에 `X-RateLimit-Limit`, `X-RateLimit-Remaining` 헤더가 붙는다.
+
+| 대상 | 한도 | 기준 |
+|---|---|---|
+| 모든 API | 120 | 로그인 사용자 id, 비로그인은 IP |
+| `GET /regions/{code}/articles` 중 `q` 가 있는 요청 | 30 (위 120 과 별도로 추가) | IP |
+| `POST /auth/login` | 5 | 이메일 + IP |
+
+값은 be `config/newsmap.php` 의 `rate_limits`. 프론트는 검색 입력에 디바운스(300ms)를 유지한다.
 
 ## 프론트 화면 ↔ API 매핑
 - 페이지 로드: `GET /stats/summary`, `GET /stats/regions?level=sido`, `GET /articles/latest?limit=16`, `GET /me`(토큰 있을 때)
