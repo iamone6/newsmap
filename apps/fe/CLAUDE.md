@@ -106,6 +106,7 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
   - `region`·`thumbnail` 이 null 인 경우를 처리했다.
   - 썸네일은 항목 폭 40%·16:9 고정 상자에 cover 로 보여 준다(원본 크기 무시). `next/image` 가 `/_next/image` 에서 줄이고 디스크에 캐시한다. 언론사 호스트가 많아 `remotePatterns` 는 모든 http/https 를 허용하고, 대신 `imageSizes`·`qualities` 를 좁혀 둔다(`next.config.ts`). 로드 실패면 자리를 숨긴다.
   - 429 문구를 바꿔 보여 준다.
+- **지도 범례**: be 가 단계별 분포(0건 + 기사 있는 지역 5분위)로 `meta.legend` 를 계산한다. 카카오 엔진도 SVG 처럼 육지를 `colorForCount` 로 칠한다(불투명도 `LAND_FILL_OPACITY` 0.5). mock 도 같은 규칙(`mockApi.ts` 의 `legendOf`).
 - **mock**: 응답 모양을 v1 과 같게 맞췄다.
   - `view_count` 를 뺐다.
   - 열 개 중 하나는 `region: null` 이다.

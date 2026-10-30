@@ -19,7 +19,7 @@ interface KakaoMapEngineProps extends MapEngineProps {
  * @param props KakaoMapEngineProps 참고
  * @returns 지도를 담는 div
  */
-export function KakaoMapEngine({ maps, statsByCode, selectedCode, onSelect, onLevelChange, ref }: KakaoMapEngineProps) {
+export function KakaoMapEngine({ maps, statsByCode, legend, selectedCode, onSelect, onLevelChange, ref }: KakaoMapEngineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<KakaoMapRenderer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,7 +37,7 @@ export function KakaoMapEngine({ maps, statsByCode, selectedCode, onSelect, onLe
   const handleMapSelect = useEffectEvent(selectRegion);
   const notifyLevelChange = useEffectEvent(onLevelChange);
   const applyCurrentState = useEffectEvent((renderer: KakaoMapRenderer) => {
-    renderer.setStats(statsByCode);
+    renderer.setStats(statsByCode, legend);
     renderer.setSelected(selectedCode);
   });
 
@@ -70,8 +70,8 @@ export function KakaoMapEngine({ maps, statsByCode, selectedCode, onSelect, onLe
 
   // 2) 통계·선택이 바뀌면 렌더러에 알려 주기
   useEffect(() => {
-    rendererRef.current?.setStats(statsByCode);
-  }, [statsByCode]);
+    rendererRef.current?.setStats(statsByCode, legend);
+  }, [statsByCode, legend]);
 
   useEffect(() => {
     rendererRef.current?.setSelected(selectedCode);

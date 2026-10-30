@@ -12,7 +12,7 @@ import { merge } from "topojson-client";
 import type { MultiPolygon, Position } from "geojson";
 import type { MultiPolygon as TopoMultiPolygon, Polygon as TopoPolygon } from "topojson-specification";
 import type { RegionStat } from "@/lib/api/types";
-import { MAP_COLORS } from "../colors";
+import { MAP_COLORS, colorForCount } from "../colors";
 import {
   ISLAND_MARKERS,
   KOREA_BOUNDS,
@@ -46,6 +46,9 @@ const KAKAO_LEVEL_RANGE: Record<MapLevel, [number, number]> = {
 /** 단계별 경계선 굵기 */
 const LINE_WIDTH: Record<MapLevel, number> = { sido: 1.4, sigungu: 0.8, emd: 0.8 };
 const SELECTED_LINE_WIDTH: Record<MapLevel, number> = { sido: 3.1, sigungu: 2.2, emd: 1.6 };
+
+/** 육지 폴리곤 불투명도. 지도 타일 위라서 기사 수 색 단계가 보이면서도 지명이 비치도록 둔다 */
+const LAND_FILL_OPACITY = 0.5;
 
 /** 시군구·읍면동 단계에서 한 번에 그리는 최대 폴리곤 수 */
 const MAX_VISIBLE_FEATURES = 260;
@@ -100,6 +103,8 @@ export class KakaoMapRenderer {
   private level: MapLevel = "sido";
   private levelFeatures: MapFeature[] = [];
   private stats = new Map<string, RegionStat>();
+  /** 범례 구간 시작값 (API meta.legend). 육지 색을 기사 수로 고를 때 쓴다 */
+  private legend: number[] = [];
   private selectedCode: string | null = null;
   private destroyed = false;
 
@@ -167,9 +172,11 @@ export class KakaoMapRenderer {
   /**
    * 지역 통계가 바뀌었을 때 다시 그린다.
    * @param stats 지역 코드 → 통계
+   * @param legend 범례 구간
    */
-  setStats(stats: Map<string, RegionStat>): void {
+  setStats(stats: Map<string, RegionStat>, legend: number[]): void {
     this.stats = stats;
+    this.legend = legend;
     this.draw();
   }
 
@@ -283,15 +290,17 @@ export class KakaoMapRenderer {
 
   /**
    * 폴리곤 스타일(색·투명도·선)을 정한다.
+   * 육지는 SVG 지도처럼 기사 수에 따라 범례 색(colorForCount)으로 칠한다.
    * @param shape 폴리곤
    * @returns 카카오 Polygon 옵션
    */
   private styleOf(shape: MapFeature): Record<string, string | number> {
     const isSelected = shape.id === this.selectedCode;
     const isSea = shape.kind === "sea";
+    const landColor = colorForCount(this.countOf(shape.id), this.legend);
     return {
-      fillColor: isSelected ? MAP_COLORS.selected : isSea ? MAP_COLORS.sea : MAP_COLORS.land,
-      fillOpacity: isSelected ? 0.55 : isSea ? 0.45 : 0.34,
+      fillColor: isSelected ? MAP_COLORS.selected : isSea ? MAP_COLORS.sea : landColor,
+      fillOpacity: isSelected ? 0.55 : isSea ? 0.45 : LAND_FILL_OPACITY,
       strokeColor: isSelected ? MAP_COLORS.selectedStroke : MAP_COLORS.landStroke,
       strokeWeight: isSelected ? SELECTED_LINE_WIDTH[this.level] : LINE_WIDTH[this.level],
       strokeOpacity: 0.95,

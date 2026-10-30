@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Domain\Region\Actions\FindRegionAction;
 use App\Domain\Stats\Actions\GetSummaryAction;
 use App\Domain\Stats\Actions\ListRegionStatsAction;
-use App\Domain\Stats\Consts\StatsConsts;
 use App\Domain\Stats\Requests\ListRegionStatsRequest;
 use App\Domain\Stats\Resources\RegionStatResource;
 use App\Domain\Stats\Resources\SummaryResource;
+use App\Domain\Stats\Services\LegendCalculator;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
@@ -33,22 +33,24 @@ class StatsController extends Controller
      * @param  ListRegionStatsRequest  $request  level·parent
      * @param  FindRegionAction  $findRegion  parent 코드 확인
      * @param  ListRegionStatsAction  $listRegionStats  집계 Action
+     * @param  LegendCalculator  $legendCalculator  기사 수 분포로 범례 구간 계산
      * @return AnonymousResourceCollection {data: [...], meta: {level, max, legend}}
      */
-    public function regions(ListRegionStatsRequest $request, FindRegionAction $findRegion, ListRegionStatsAction $listRegionStats): AnonymousResourceCollection
+    public function regions(ListRegionStatsRequest $request, FindRegionAction $findRegion, ListRegionStatsAction $listRegionStats, LegendCalculator $legendCalculator): AnonymousResourceCollection
     {
         $parentCode = $request->parentCode();
         $parent = $parentCode === null ? null : $findRegion->execute($parentCode);
         $level = $request->level();
 
         $stats = $listRegionStats->execute($level, $parent);
-        $maxCount = $stats === [] ? 0 : max(array_column($stats, 'article_count'));
+        $articleCounts = array_column($stats, 'article_count');
+        $maxCount = $articleCounts === [] ? 0 : max($articleCounts);
 
         return RegionStatResource::collection($stats)->additional([
             'meta' => [
                 'level' => $level->apiName(),
                 'max' => $maxCount,
-                'legend' => StatsConsts::LEGEND,
+                'legend' => $legendCalculator->calculate($articleCounts),
             ],
         ]);
     }

@@ -3,7 +3,6 @@
  * newsApi.ts 의 NewsApi 와 같은 함수를 갖고, 응답 모양도 contracts/API.md 와 똑같이 만든다.
  * "v1 구현 범위"도 실제 be 와 같게 따른다: 바다·섬은 통계에 없고 목록은 404, view_count 없음, region 은 null 일 수 있음.
  */
-import { DEFAULT_LEGEND } from "@/features/map/colors";
 import { findRegion, isAdminLevel, levelOfCode, loadLevelFeatures, toRegionRef } from "@/features/map/geo";
 import { ApiError } from "@/lib/api/httpClient";
 import type { NewsApi } from "@/lib/api/newsApi";
@@ -13,6 +12,8 @@ import { mockArticlesOf } from "./mockData";
 /** 가짜 응답을 돌려주기 전에 기다리는 시간(ms). 실제 네트워크처럼 보이게 한다 */
 const FAKE_DELAY_MS = 150;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+/** 범례에서 기사가 있는 지역을 몇 등분할지 (be StatsConsts::LEGEND_QUANTILE_COUNT 와 같게) */
+const LEGEND_QUANTILE_COUNT = 5;
 
 /**
  * 잠깐 기다린다.
@@ -49,6 +50,28 @@ function statOf(region: RegionRef): RegionStat {
   };
 }
 
+/**
+ * be 의 LegendCalculator 와 같은 규칙으로 범례 구간 시작값을 만든다.
+ * 0건과 1건부터를 먼저 두고, 기사가 있는 지역을 기사 수로 정렬해 5등분한 시작값을 붙인다.
+ * 앞 값보다 커야 하므로 겹치면 1씩 올리고, 최대 기사 수를 넘으면 그만 붙인다.
+ * @param articleCounts 지역별 기사 수
+ * @returns 오름차순 구간 시작값. 예) [0, 1, 6, 11, 19, 35]
+ */
+function legendOf(articleCounts: number[]): number[] {
+  const legend = [0, 1];
+  const nonZeroCounts = articleCounts.filter((count) => count > 0).sort((a, b) => a - b);
+  if (nonZeroCounts.length === 0) return legend;
+
+  const maxCount = nonZeroCounts[nonZeroCounts.length - 1];
+  for (let part = 1; part < LEGEND_QUANTILE_COUNT; part++) {
+    const position = Math.floor((part * nonZeroCounts.length) / LEGEND_QUANTILE_COUNT);
+    const start = Math.max(nonZeroCounts[position], legend[legend.length - 1] + 1);
+    if (start > maxCount) break;
+    legend.push(start);
+  }
+  return legend;
+}
+
 export const mockApi: NewsApi = {
   async getSummary() {
     await wait(FAKE_DELAY_MS);
@@ -70,8 +93,9 @@ export const mockApi: NewsApi = {
   async getRegionStats(level) {
     await wait(FAKE_DELAY_MS);
     const stats = (await regionsOfLevel(level)).map(statOf);
-    const max = Math.max(0, ...stats.map((stat) => stat.article_count));
-    return { data: stats, meta: { level, max, legend: DEFAULT_LEGEND } };
+    const counts = stats.map((stat) => stat.article_count);
+    const max = Math.max(0, ...counts);
+    return { data: stats, meta: { level, max, legend: legendOf(counts) } };
   },
 
   async getRegionArticles(code, query) {

@@ -45,7 +45,7 @@ class StatsApiTest extends TestCase
                 ['code' => '11', 'name' => '서울특별시', 'article_count' => 0, 'latest_title' => null],
                 ['code' => '41', 'name' => '경기도', 'article_count' => 2, 'latest_title' => '오늘 수원시 기사'],
             ])
-            ->assertJsonPath('meta', ['level' => 'sido', 'max' => 2, 'legend' => [0, 1, 5, 15, 30]]);
+            ->assertJsonPath('meta', ['level' => 'sido', 'max' => 2, 'legend' => [0, 1, 2]]);
     }
 
     /**
