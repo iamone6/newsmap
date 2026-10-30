@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import logging
+from typing import Any, Literal
 
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from rag import usage
 from rag.retry import call_with_retry
+
+log = logging.getLogger(__name__)
 
 SectionCode = Literal["politics", "economy", "society", "culture", "sports", "science"]
 
@@ -41,6 +44,51 @@ class ArticleJudgment(BaseModel):
     )
     section_code: SectionCode | None = Field(None, description="6개 섹션 중 가장 알맞은 하나. 애매하면 null")
     images: list[ImageJudgment] = Field(default_factory=list)
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def _normalize_images(cls, value: Any) -> Any:
+        """모델이 images 를 리스트가 아닌 모양으로 돌려줄 때 리스트로 바로잡는다.
+
+        function_calling 방식은 스키마를 강제하지 않아서, 가끔(2026-10-30 01:35 무렵 집중 발생)
+        아래 모양이 HTTP 200 으로 돌아온다. images 는 캡션 출처 정도의 부가 정보라 형식이 깨졌다고
+        기사 전체를 버리지 않는다.
+        - {"items": [...]}: 리스트를 한 번 더 감싼 경우 → 안쪽 리스트
+        - {"items": {"0": {...}, "1": {...}}} 또는 {"0": {...}}: 순번을 키로 한 dict → 값 리스트
+        - {"items": {"properties": ..., "type": "object"}, "type": "array"}: 값 대신 스키마를 베낀 경우 → []
+        그 밖의 모양은 그대로 넘겨 pydantic 검증 실패(→ 재시도)에 맡긴다.
+
+        :param value: 모델이 반환한 images 원본 값
+        :return: 바로잡은 값(리스트) 또는 손대지 않은 원본
+        """
+        if not isinstance(value, dict):
+            return value
+
+        # 실제 값이 들어 있는 리스트를 먼저 꺼낸다. {"items": [...], "type": "array"} 처럼
+        # 스키마 키가 섞여 있어도 값이 있으면 버리지 않는다.
+        inner = value.get("items", value)
+        if isinstance(inner, list):
+            log.warning("LLM 이 images 리스트를 {'items': ...} 로 감싸 반환해 풀었다")
+            return inner
+        if not isinstance(inner, dict):
+            return value
+
+        if _looks_like_json_schema(value) or _looks_like_json_schema(inner):
+            log.warning("LLM 이 images 값 대신 스키마를 반환해 이미지 판단을 비웠다")
+            return []
+        if inner and all(str(key).isdigit() for key in inner):
+            log.warning("LLM 이 images 리스트를 순번 키 dict 로 반환해 리스트로 바꿨다")
+            return [inner[key] for key in sorted(inner, key=int)]
+        return value
+
+
+def _looks_like_json_schema(value: dict) -> bool:
+    """dict 가 실제 값이 아니라 JSON Schema 정의(type/properties 키)처럼 보이는지 판단한다.
+
+    :param value: 검사할 dict
+    :return: 스키마 정의로 보이면 True
+    """
+    return "properties" in value or value.get("type") in {"array", "object"}
 
 
 _PROMPT = """\
@@ -76,6 +124,10 @@ def _invoke_once(structured, prompt: str) -> ArticleJudgment:
     usage.record_llm(token_usage.get("input_tokens", 0), token_usage.get("output_tokens", 0))
     if result["parsing_error"] is not None:
         raise ValueError(f"LLM 구조화 출력 파싱 실패: {result['parsing_error']}")
+    if result["parsed"] is None:
+        # 모델이 도구 호출 없이 일반 텍스트로만 답한 경우. 그대로 넘기면 pipeline 에서
+        # AttributeError 가 나고 재시도도 안 되므로 여기서 예외로 바꿔 재시도 대상에 넣는다.
+        raise ValueError("LLM 구조화 출력 없음: 모델이 도구 호출 없이 응답했다")
     return result["parsed"]
 
 
