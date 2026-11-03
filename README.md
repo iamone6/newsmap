@@ -6,6 +6,9 @@
 
 ```
 ├─ docker-compose.yml          # db, rag, fe, be 서비스
+├─ docker-compose.prod.yml     # 운영 서버용 (GHCR 이미지 사용, 서버에서 빌드 안 함)
+├─ .github/workflows/          # ci.yml (lint·테스트), deploy.yml (master push → GHCR → Vultr)
+├─ deploy/                     # 운영 서버 스크립트 (배포·롤백, rag 주기 실행, 보존 기간 삭제, crontab)
 ├─ dockerfiles/db.dockerfile   # PostgreSQL + 확장
 ├─ dockerfiles/rag.dockerfile  # Python 워커 (상시 기동, exec 로 실행)
 ├─ dockerfiles/fe.dockerfile   # Next.js standalone (be 뒤에서만 접근)
@@ -143,3 +146,83 @@ cd apps/rag && uv run python -m rag.remap_regions
   - 시군구 → 시도
 
 `article_regions`의 코드 컬럼은 `regions`를 FK로 참조합니다. 그래서 지역 코드까지 저장하려면 수집을 시작하기 전에 이 적재를 먼저 해야 합니다.
+
+## 운영(prod) 배포
+
+master 에 push 하면 GitHub Actions 가 배포합니다(`.github/workflows/deploy.yml`).
+
+1. `ci.yml`: fe lint·빌드, be 테스트·pint, rag pytest
+2. 이미지 4개(db·rag·fe·be)를 빌드해 `ghcr.io/iamone6/newsmap-<서비스>:sha-<커밋 7자리>` 와 `:latest` 로 push
+3. compose 파일과 `deploy/` 를 서버 `/srv/newsmap` 에 복사하고 `deploy/deploy.sh sha-xxxxxxx` 실행 (pull → up → be healthy 확인)
+4. `https://<도메인>/up` 확인
+
+서버에는 소스가 없고 compose 파일·운영 스크립트·`apps/{db,rag,be}/.env` 만 있습니다. 환경값은 서버에서만 관리하고 CI 는 건드리지 않습니다. fe 의 `NEXT_PUBLIC_*` 는 빌드 때 번들에 박히므로 GitHub Secrets 에서 넣습니다.
+
+### GitHub 설정
+
+| 종류 | 이름 | 값 |
+|---|---|---|
+| Secret | `VULTR_HOST` | 서버 IP |
+| Secret | `VULTR_USER` | 배포 사용자 (예: `deploy`) |
+| Secret | `VULTR_SSH_KEY` | 배포 사용자의 SSH 개인키 (배포 전용으로 새로 만든다) |
+| Secret | `VULTR_SSH_FINGERPRINT` | 서버 호스트키 SHA256 지문 (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 의 `SHA256:...` 부분) |
+| Secret | `FE_KAKAO_MAP_JS_KEY` | 카카오맵 JS 키 (비우면 SVG 지도) |
+| Variable | `PROD_DOMAIN` | 서비스 도메인 (예: `newsmap.example.com`) |
+
+### 서버 최초 준비 (1회)
+
+```bash
+# Ubuntu LTS 기준. Docker Engine + compose plugin 설치 후
+sudo timedatectl set-timezone Asia/Seoul
+sudo adduser --disabled-password deploy && sudo usermod -aG docker deploy   # SSH 공개키를 ~deploy/.ssh/authorized_keys 에 등록
+sudo mkdir -p /srv/newsmap/apps/{db,rag,be} /data/postgres && sudo chown -R deploy: /srv/newsmap
+# 방화벽: 22, 80/tcp, 443/tcp, 443/udp(HTTP/3) 만 연다. DNS A 레코드가 서버를 가리켜야 Caddy 가 인증서를 발급한다.
+
+# deploy 사용자로: GHCR 패키지가 private 이면 read:packages 권한 PAT 로 한 번 로그인해 둔다 (~/.docker/config.json 에 저장됨)
+docker login ghcr.io -u iamone6
+```
+
+prod `.env` 는 `.env.example` 을 참고해 서버에서 직접 만들고 `chmod 600` 으로 둡니다. 로컬 값과 다르게 둘 것:
+
+- `apps/db/.env`: 새 `POSTGRES_PASSWORD`
+- `apps/be/.env`: `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<도메인>`, `SERVER_NAME=<도메인>`, `FE_UPSTREAM=fe:3000`, `LOG_CHANNEL=stderr`, `LOG_LEVEL=warning`, 새 `APP_KEY`, `DB_PASSWORD`(db 와 같게)
+- `apps/rag/.env`: `DB_PASSWORD`, `DEEPINFRA_API_KEY`
+
+카카오 Developers 의 Web 플랫폼 도메인에 `https://<도메인>` 을 추가합니다. 그 다음 deploy.yml 을 Actions 에서 수동 실행(workflow_dispatch)하거나 master 에 push 합니다.
+
+### 로컬 DB 이전 (최초 1회)
+
+로그인 계정(`users`, `personal_access_tokens`)은 데이터를 빼고 옮깁니다(로컬 테스트 계정이 운영에 들어가지 않게).
+
+```bash
+# 로컬
+docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" --exclude-table-data=users --exclude-table-data=personal_access_tokens "$POSTGRES_DB"' > newsmap.dump
+scp newsmap.dump deploy@<서버>:/srv/newsmap/
+
+# 서버 (/srv/newsmap). db 만 먼저 띄우고 복원한 뒤 나머지를 올린다
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d db
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db sh -c 'pg_restore --no-owner --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < newsmap.dump
+deploy/deploy.sh
+rm newsmap.dump
+```
+
+덤프에 스키마·확장(vector, pg_search)·인덱스가 들어 있으므로 `contracts/schema.sql` 은 따로 적용하지 않습니다.
+
+### 주기 작업 (cron)
+
+```bash
+crontab /srv/newsmap/deploy/crontab   # deploy 사용자로
+```
+
+- 30분마다 `deploy/run-rag.sh`(`--feed-key ALL`). 이전 실행이 안 끝났으면 `flock` 으로 건너뜁니다.
+- 매일 04:10 `deploy/purge-old-articles.sh`(보존 기간 1년 지난 기사 삭제).
+- 출력은 `deploy/cron.log`, rag 자체 로그는 `apps/rag/logs`.
+
+### 롤백
+
+```bash
+cat /srv/newsmap/deploy/.current-tag        # 지금 배포된 태그
+/srv/newsmap/deploy/deploy.sh sha-<이전 커밋 7자리>
+```
+
+1주일 넘게 쓰지 않은 이미지는 배포 때 정리되므로, 그보다 오래된 태그는 다시 pull 합니다(GHCR 에는 남아 있음).

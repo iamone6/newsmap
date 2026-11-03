@@ -22,6 +22,7 @@
     - **be(FrankenPHP/Caddy)가 서비스 앞단**이다. prod 는 호스트 80/443(도메인이면 HTTPS 자동 발급), 로컬은 override 에서 `ports: !override`로 4000 만 연다. `/api/*`·`/up` 은 Laravel, 나머지는 fe 로 프록시한다(`apps/be/Caddyfile`). 같은 도메인이라 CORS 가 없다.
     - fe 는 호스트 포트를 열지 않고(`expose: 3000`) be 뒤에서만 접근한다. Next.js standalone 출력을 `node server.js` 로 서빙한다. `NEXT_PUBLIC_*` 는 빌드 시점에 번들로 박히므로 `apps/fe/.env` 를 compose build secret 으로 빌드 때만 넘기고, 값을 바꾸면 `--build` 가 필요하다.
     - 로컬 be 는 dev 타깃 + 소스 bind mount 라 코드 변경이 재빌드 없이 반영된다(상세는 `apps/be/CLAUDE.md`).
+    - 운영(Vultr)은 `docker-compose.prod.yml` 을 겹쳐 쓴다. master push 시 `.github/workflows/deploy.yml` 이 CI(`ci.yml`) 통과 후 이미지를 GHCR(`ghcr.io/iamone6/newsmap-*:sha-xxxxxxx`)에 올리고 서버에서 `deploy/deploy.sh` 로 교체한다. 서버에는 소스 없이 compose 파일·`deploy/`·`apps/{db,rag,be}/.env` 만 둔다. rag 주기 실행과 보존 기간 삭제는 서버 crontab(`deploy/crontab`). 절차는 README "운영(prod) 배포".
 - **Database**
     -  PostgreSQL 18.6 + pgvector 0.8.6 + pg_search(ParadeDB) 0.25.11. 버전을 올릴 때는 `dockerfiles/db.dockerfile`의 `ARG`(pg_search sha256 포함)와 README 버전 표를 함께 고친다. pg_search는 `shared_preload_libraries` 등록이 필요해 `postgresql.conf.sample`을 수정하는 방식이므로, 이미 initdb된 데이터 디렉터리에는 반영되지 않는다.
     - 모든 시각은 `timestamptz(0)`, 시간대 `Asia/Seoul`. 보존 기간 1년, `articles` 삭제 시 하위 테이블은 `ON DELETE CASCADE`.

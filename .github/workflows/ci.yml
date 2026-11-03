@@ -1,0 +1,105 @@
+# CI: fe lint·빌드, be 테스트·코드 스타일, rag 테스트.
+# PR 과 master 외 브랜치 push 에서 돈다. master push 는 deploy.yml 이 이 워크플로를 먼저 불러(workflow_call) 통과해야 배포한다.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [master]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  fe:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/fe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # dockerfiles/fe.dockerfile 의 NODE_VERSION 과 메이저를 맞춘다
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/fe/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # 빌드가 되는지만 본다. 실제 배포 이미지는 deploy.yml 이 prod 값으로 다시 빌드한다
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          NEXT_PUBLIC_USE_MOCK_API: "true"
+          NEXT_PUBLIC_API_BASE_URL: /api/v1
+
+  be:
+    runs-on: ubuntu-24.04
+    env:
+      DB_USER: newsmap
+      DB_PASSWORD: ci-password
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+
+      # be 테스트는 pgvector·pg_search·search_chunks() 를 쓰므로 운영과 같은 DB 이미지로 돌린다
+      - name: db 이미지 빌드
+        uses: docker/build-push-action@v6
+        with:
+          context: dockerfiles
+          file: dockerfiles/db.dockerfile
+          tags: newsmap-db:ci
+          load: true
+          cache-from: type=gha,scope=db
+          cache-to: type=gha,scope=db,mode=max
+
+      # 로컬 개발과 같은 dev 타깃(PHP 버전·확장 동일)에 소스를 마운트해서 테스트한다
+      - name: be 이미지(dev 타깃) 빌드
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/be
+          file: dockerfiles/be.dockerfile
+          target: dev
+          tags: newsmap-be:ci
+          load: true
+          cache-from: type=gha,scope=be-dev
+          cache-to: type=gha,scope=be-dev,mode=max
+
+      - name: db 기동 + 테스트 DB(newsmap_test) 스키마 적용
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci \
+            -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" -e POSTGRES_DB=newsmap \
+            newsmap-db:ci
+          for _ in $(seq 1 30); do
+            docker exec db pg_isready -U "$DB_USER" -d newsmap && break
+            sleep 2
+          done
+          docker exec db psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d newsmap -c "CREATE DATABASE newsmap_test"
+          docker exec -i db psql -q -v ON_ERROR_STOP=1 -U "$DB_USER" -d newsmap_test < contracts/schema.sql
+
+      - name: composer install + 테스트 + pint
+        run: |
+          docker run --rm --network ci -v "$PWD/apps/be:/app" -w /app \
+            -e APP_KEY="base64:$(openssl rand -base64 32)" \
+            -e DB_HOST=db -e DB_PORT=5432 -e DB_USERNAME="$DB_USER" -e DB_PASSWORD="$DB_PASSWORD" \
+            newsmap-be:ci \
+            sh -c "composer install --no-interaction --prefer-dist && php artisan test --compact && vendor/bin/pint --test"
+
+  rag:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/rag
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          # dockerfiles/rag.dockerfile 의 UV_VERSION 과 맞춘다
+          version: "0.13.1"
+          enable-cache: true
+          cache-dependency-glob: apps/rag/uv.lock
+      - run: uv sync --locked
+      # DB·DeepInfra 가 필요한 테스트(conftest 의 db_conn 등)는 연결이 안 되면 스스로 skip 한다
+      - run: uv run pytest -q

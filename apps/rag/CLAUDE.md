@@ -17,7 +17,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key joongboo
 docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml 전체 피드 순회
 ```
 
-나중에 주기적으로 돌릴 때도 호스트 cron(또는 다른 스케줄러)이 이 `docker compose exec` 커맨드를 피드별로 호출하는 모양이 된다. 컨테이너 안에 자체 스케줄러를 넣는 방식은 아직 채택 안 했다.
+운영 서버에서는 호스트 cron 이 `deploy/run-rag.sh`(30분마다 `--feed-key ALL`, `flock` 으로 중복 실행 방지)를 부른다(`deploy/crontab`). 컨테이너 안에 자체 스케줄러는 넣지 않는다.
 
 ## 로그 파일
 

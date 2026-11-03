@@ -47,6 +47,10 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 
+# next/image 디스크 캐시 위치. prod 는 여기에 named volume 을 붙이는데(docker-compose.prod.yml),
+# 빈 볼륨은 이미지의 디렉터리 소유자를 따라가므로 node 가 쓸 수 있게 미리 만들어 둔다.
+RUN mkdir -p .next/cache && chown node:node .next/cache
+
 USER node
 
 EXPOSE 3000
