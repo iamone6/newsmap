@@ -2,7 +2,14 @@
 
 앞으로 해야 할 일을 기록한다. 끝낸 항목은 지운다. 위에 있을수록 먼저 한다.
 
-- [ ] Vultr 첫 배포: 서버 준비·GitHub Secrets 등록·로컬 DB 이전·crontab 적용 (README "운영(prod) 배포"), 카카오맵 기사 수 색칠 화면 확인
+- [ ] Vultr 첫 배포 (절차는 README "운영(prod) 배포"). 도메인 `newsmap.duckdns.org`, 배포 사용자 `deploy`
+    - [x] 1단계 서버 준비 (2026-11-04): Ubuntu 24.04 LTS·Asia/Seoul, Docker·compose, deploy 사용자(docker 그룹)·`/srv/newsmap`·`/data/postgres`, 배포 전용 SSH 키(PC `~/.ssh/newsmap_deploy`), 비밀번호 SSH 로그인 차단, ufw 22·80·443/tcp, deploy 의 GHCR 로그인(read:packages PAT), DuckDNS A 레코드
+    - [ ] (선택) `sudo ufw allow 443/udp` (HTTP/3)
+    - [ ] 2단계 GitHub 등록: Secrets `VULTR_HOST`·`VULTR_USER`·`VULTR_SSH_KEY`(개인키 전체)·`VULTR_SSH_FINGERPRINT`(서버 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 의 `SHA256:...`, 첫 배포에서 mismatch 나면 ECDSA 지문으로)·`FE_KAKAO_MAP_JS_KEY`, Variable `PROD_DOMAIN`
+    - [ ] 3단계 서버에 prod `.env` 3개 작성(`apps/{db,be,rag}/.env`, `chmod 600`)
+    - [ ] 4단계 카카오 Developers Web 도메인에 `https://newsmap.duckdns.org` 추가
+    - [ ] 5단계 로컬 DB 덤프 → 서버 복원 → master push(또는 workflow_dispatch)로 첫 배포 → `crontab deploy/crontab`
+    - [ ] 확인: `https://newsmap.duckdns.org/up`, 지도·썸네일, 카카오맵 기사 수 색칠 화면
 - [ ] 운영 DB 백업: 정기 `pg_dump`(서버 밖 보관) 또는 Vultr 자동 스냅샷 결정
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`
