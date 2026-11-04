@@ -69,3 +69,8 @@ apps/rag/logs/
 
 # ---- Hugging Face 토크나이저/모델 캐시 ----
 .cache/
+
+# ---- graphify: 결과물(graph.json·GRAPH_REPORT.md·graph.html)만 커밋, 로컬 경로·캐시는 제외 ----
+graphify-out/cache/
+graphify-out/.graphify_python
+graphify-out/.graphify_root
