@@ -46,11 +46,11 @@ apps/be/public/hot
 apps/be/public/storage
 apps/be/public/build
 apps/be/storage/*.key
-apps/be/storage/logs/
-apps/be/storage/framework/cache/
-apps/be/storage/framework/sessions/
-apps/be/storage/framework/views/
-apps/be/storage/framework/testing/
+# storage/logs·storage/framework/{cache,sessions,testing,views} 는 디렉터리째 무시하지 않는다.
+# 각 디렉터리의 Laravel 기본 .gitignore(*, !.gitignore)가 내용물만 무시해 빈 디렉터리가 커밋되어야
+# CI checkout 과 운영 이미지에 뷰 캐시 경로가 생긴다 (없으면 /up 이 "valid cache path" 500).
+# storage/logs 는 위의 공통 logs/ 규칙에 걸리므로 디렉터리만 다시 포함한다.
+!apps/be/storage/logs/
 apps/be/bootstrap/cache/*.php
 .phpunit.result.cache
 .phpunit.cache/

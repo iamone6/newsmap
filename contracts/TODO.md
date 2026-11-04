@@ -10,6 +10,7 @@
     - [ ] 4단계 카카오 Developers Web 도메인에 `https://newsmap.duckdns.org` 추가
     - [ ] 5단계 로컬 DB 덤프 → 서버 복원 → master push(또는 workflow_dispatch)로 첫 배포 → `crontab deploy/crontab`
     - [ ] 확인: `https://newsmap.duckdns.org/up`, 지도·썸네일, 카카오맵 기사 수 색칠 화면
+- [ ] be CI 경고 정리: `.env` 없는 환경(CI)에서 `php artisan test` 가 기능 테스트마다 `file_get_contents(/app/.env)` 경고를 낸다(25건, 실패 아님). `vendor/bin/phpunit` 로는 안 나므로 artisan test 쪽(Pest/Collision·dev 패키지)이 원인으로 보임
 - [ ] 운영 DB 백업: 정기 `pg_dump`(서버 밖 보관) 또는 Vultr 자동 스냅샷 결정
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`

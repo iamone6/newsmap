@@ -1,6 +1,38 @@
 import time
 
+import pytest
+
 from rag import config, pipeline
+
+
+@pytest.fixture(autouse=True)
+def isolated_run_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_all() 이 .env 와 토크나이저 없이 돌도록 설정 로딩과 토크나이저 예열을 대체한다.
+
+    CI 에는 apps/rag/.env 가 없고, 토크나이저를 처음 받는 시간이 동시성 측정에 섞이면 안 된다.
+    피드 목록(feeds.yaml)은 실제 파일을 그대로 쓴다.
+
+    Args:
+        monkeypatch: pytest 의 monkeypatch 픽스처.
+    """
+    settings = config.Settings(
+        db_host="unused",
+        db_port=5432,
+        db_database="unused",
+        db_username="unused",
+        db_password="unused",
+        deepinfra_api_key="unused",
+        deepinfra_base_url="unused",
+        embedding_model="unused",
+        embedding_dimensions=1024,
+        llm_model="unused",
+        chunk_max_tokens=500,
+        chunk_overlap_ratio=0.1,
+        max_items_per_batch=50,
+        max_concurrent_feeds=4,
+    )
+    monkeypatch.setattr(config, "load_settings", lambda: settings)
+    monkeypatch.setattr(pipeline.chunker, "count_tokens", lambda text: 0)
 
 
 def test_run_all_processes_feeds_concurrently(monkeypatch):
