@@ -9,7 +9,8 @@
     - [x] 3단계 서버에 prod `.env` 3개 작성 (2026-11-04): 로컬 값 기반, 새 `POSTGRES_PASSWORD`·`APP_KEY`, `chmod 600`
     - [x] 4단계 카카오 Developers 에 `https://newsmap.duckdns.org` 등록 (2026-11-04)
     - [x] 5단계 첫 배포 `sha-9871b5a` (2026-11-04): 지문은 ECDSA 로 교체, 로컬 DB 복원(기사 14,278·청크 34,241·행정동 9,612, users 제외), API·하이브리드 검색 응답 확인
-    - [ ] 서버 deploy 사용자로 `crontab /srv/newsmap/deploy/crontab` (rag 30분 주기·보존 기간 삭제). 등록 후 30분 뒤 `deploy/cron.log`·`apps/rag/logs/rag.log` 확인
+    - [x] 서버 crontab 등록 (2026-11-04): rag 매일 00:00 하루 1회, 보존 기간 삭제 04:10
+    - [ ] 첫 cron 실행(2026-11-05 00:00) 뒤 `deploy/cron.log`·`apps/rag/logs/rag.log` 확인
     - [ ] README 로컬 DB 이전 명령 수정: Windows 에서 `pg_dump ... > newsmap.dump` 파이프가 바이너리를 깨뜨린다(175MB → 167MB). 컨테이너 안 `-f /tmp/x.dump` 후 `docker compose cp` 로 꺼내도록
     - [ ] 화면 확인: 카카오맵 로드(`domain mismatched` 없는지)·기사 수 색칠·썸네일
 - [ ] be CI 경고 정리: `.env` 없는 환경(CI)에서 `php artisan test` 가 기능 테스트마다 `file_get_contents(/app/.env)` 경고를 낸다(25건, 실패 아님). `vendor/bin/phpunit` 로는 안 나므로 artisan test 쪽(Pest/Collision·dev 패키지)이 원인으로 보임

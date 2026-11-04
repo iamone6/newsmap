@@ -2,8 +2,8 @@
 # 시간대는 서버 시간대를 따른다 (서버를 Asia/Seoul 로 맞춘다: sudo timedatectl set-timezone Asia/Seoul).
 # 출력은 /srv/newsmap/deploy/cron.log 에 쌓는다 (rag 자체 로그는 apps/rag/logs).
 
-# 30분마다 전체 피드 수집. DeepInfra 비용을 보고 주기를 조정한다
-*/30 * * * * /srv/newsmap/deploy/run-rag.sh >> /srv/newsmap/deploy/cron.log 2>&1
+# 매일 00:00 전체 피드 수집 (하루 1회). DeepInfra 비용을 보고 주기를 조정한다
+0 0 * * * /srv/newsmap/deploy/run-rag.sh >> /srv/newsmap/deploy/cron.log 2>&1
 
 # 매일 04:10 보존 기간(1년) 지난 기사 삭제
 10 4 * * * /srv/newsmap/deploy/purge-old-articles.sh >> /srv/newsmap/deploy/cron.log 2>&1
