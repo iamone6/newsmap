@@ -61,16 +61,23 @@ jobs:
             type=raw,value=latest
 
       # fe 의 NEXT_PUBLIC_* 는 빌드 때 번들에 박힌다. dockerfiles/fe.dockerfile 이 fe_env secret 을 .env 로 마운트한다
+      # build secret 내용은 Docker 레이어 캐시 키에 들어가지 않는다. 키만 바꾸면 빈 키로 만든 캐시를 그대로 쓰므로
+      # fe.env 해시를 build-arg(FE_ENV_HASH)로 넘겨 값이 바뀌면 npm run build 를 다시 돌린다.
       - name: fe 빌드용 .env 생성
+        id: fe_env
         if: matrix.name == 'fe'
         env:
           KAKAO_KEY: ${{ secrets.FE_KAKAO_MAP_JS_KEY }}
         run: |
+          if [ -z "$KAKAO_KEY" ]; then
+            echo "::warning::FE_KAKAO_MAP_JS_KEY 가 비어 있다. fe 는 카카오맵 대신 SVG 지도로 빌드된다."
+          fi
           {
             echo "NEXT_PUBLIC_KAKAO_MAP_JS_KEY=${KAKAO_KEY}"
             echo "NEXT_PUBLIC_API_BASE_URL=/api/v1"
             echo "NEXT_PUBLIC_USE_MOCK_API=false"
           } > "$RUNNER_TEMP/fe.env"
+          echo "hash=$(sha256sum "$RUNNER_TEMP/fe.env" | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       # 바뀌지 않은 이미지는 GHA 캐시로 금방 끝나고 태그만 새로 붙는다
       - uses: docker/build-push-action@v6
@@ -81,6 +88,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secret-files: ${{ matrix.name == 'fe' && format('fe_env={0}/fe.env', runner.temp) || '' }}
+          build-args: ${{ matrix.name == 'fe' && format('FE_ENV_HASH={0}', steps.fe_env.outputs.hash) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
 

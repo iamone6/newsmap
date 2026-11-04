@@ -24,6 +24,9 @@ COPY . .
 # NEXT_PUBLIC_* 값은 빌드 시점에 JS 번들로 박힌다. 그래서 apps/fe/.env 를 compose build secret 으로 빌드 때만 마운트한다.
 # 값을 바꾸면 이미지를 다시 빌드해야 한다.
 # standalone 출력은 프로젝트의 .env 를 그대로 복사해 가므로, 이미지에 남지 않도록 빌드 직후 지운다.
+# secret 내용은 레이어 캐시 키에 들어가지 않으므로, CI 는 .env 해시를 FE_ENV_HASH 로 넘겨 값이 바뀌면 다시 빌드한다
+# (.github/workflows/deploy.yml). 로컬 compose 빌드에서는 비어 있어도 된다.
+ARG FE_ENV_HASH=""
 RUN --mount=type=secret,id=fe_env,target=/app/.env \
     npm run build \
     && rm -f .next/standalone/.env
