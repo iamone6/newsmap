@@ -12,7 +12,7 @@
 | 언어 | TypeScript | 5.9 |
 | 스타일 | Tailwind CSS (`@theme` 토큰, `@tailwindcss/turbopack`) | 4.3 |
 | 지도(SVG) | d3 (geo 투영·zoom·selection) | 7.9 |
-| 지도(타일) | 카카오맵 JavaScript SDK v2 (동적 로드, `autoload=false`) | – |
+| 지도(타일) | 카카오맵 JavaScript SDK v2 (동적 로드, `autoload=false`, 스카이뷰 타일) | – |
 | 경계 | topojson-client (TopoJSON → GeoJSON, merge) | 3.1 |
 | 경계 변환(dev) | mapshaper (dissolve·simplify, `scripts/build-geo.mjs`) | 0.7 |
 | 글꼴 | next/font/google: Caprasimo(제목), Figtree(본문) | – |
@@ -106,7 +106,7 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
   - `region`·`thumbnail` 이 null 인 경우를 처리했다.
   - 썸네일은 항목 폭 40%·16:9 고정 상자에 cover 로 보여 준다(원본 크기 무시). `next/image` 가 `/_next/image` 에서 줄이고 디스크에 캐시한다. 언론사 호스트가 많아 `remotePatterns` 는 모든 http/https 를 허용하고, 대신 `imageSizes`·`qualities` 를 좁혀 둔다(`next.config.ts`). 로드 실패면 자리를 숨긴다.
   - 429 문구를 바꿔 보여 준다.
-- **지도 범례**: be 가 단계별 분포(0건 + 기사 있는 지역 5분위)로 `meta.legend` 를 계산한다. 카카오 엔진도 SVG 처럼 육지를 `colorForCount` 로 칠한다(불투명도 `LAND_FILL_OPACITY` 0.5). mock 도 같은 규칙(`mockApi.ts` 의 `legendOf`).
+- **지도 범례**: be 가 단계별 분포(0건 + 기사 있는 지역 5분위)로 `meta.legend` 를 계산한다. 카카오 엔진도 SVG 처럼 육지를 `colorForCount` 로 칠한다(불투명도 `LAND_FILL_OPACITY`, 지금은 0.7). mock 도 같은 규칙(`mockApi.ts` 의 `legendOf`).
 - **mock**: 응답 모양을 v1 과 같게 맞췄다.
   - `view_count` 를 뺐다.
   - 열 개 중 하나는 `region: null` 이다.
@@ -121,7 +121,7 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
 | `src/features/app/NewsMapApp.tsx` | 화면 조립, 공유 상태 |
 | `src/features/map/MapStage.tsx` | 엔진 선택(카카오/SVG), 엔진 상태 표시 |
 | `src/features/map/svg/SvgMapRenderer.ts` | d3 지도: 투영, 줌·단계 전환, 라벨 겹침 배치 |
-| `src/features/map/kakao/KakaoMapRenderer.ts` | 카카오 지도: 국외 마스크, 폴리곤·오버레이 |
+| `src/features/map/kakao/KakaoMapRenderer.ts` | 카카오 지도: 국외 마스크, 폴리곤·오버레이, 라벨 겹침 배치 |
 | `src/features/map/kakao/loadKakaoSdk.ts` | SDK 1회 로드(9초 타임아웃) |
 | `src/features/map/geo.ts` | TopoJSON 로드·캐시, 바다·섬, 코드 → 단위·경로 |
 | `src/features/map/colors.ts` | 지도 색, 기사 수 → 색 (API `meta.legend` 구간) |
@@ -139,3 +139,12 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
 1. `npm run lint`, `npm run build` 통과
 2. mock 모드로 dev 서버를 띄워 브라우저 확인: 지도 색칠·툴팁·지역 클릭 → 패널·검색/정렬/페이지·기사 링크(새 창)·줌 단계 전환·티커 클릭
 3. 모바일(폭 ≤768px): 레일 축소, 티커·줌·엔진 버튼 숨김, 패널 90% 폭. 창 크기 조절이 안 되면 390px iframe 에 페이지를 넣어 확인한다.
+
+## 작업 이력과 결정 (2026-11-05) — 카카오 엔진 정리
+운영 배포 후 카카오맵 화면에서 나온 문제를 고쳤다.
+- **스카이뷰 타일**: 일반 지도(ROADMAP)는 지명·행정경계가 그려져 있어 우리 라벨·경계와 겹쳐 보였다. 카카오 웹 SDK 에는 그것만 끄는 옵션이 없어(`MapOptions`·`Map` 메서드에 스타일 기능 없음) `MapTypeId.SKYVIEW` 로 바꿨다. 어두운 위성 위라 육지 불투명도를 0.7 로 올리고, `.map-label` 은 흰 글씨 + 어두운 그림자로 바꿨다.
+- **라벨 배치**: 예전에는 보이는 폴리곤이 46개 이하일 때만 라벨을 붙여, 시군구 일부 배율(카카오 레벨 10·8)에서 지역명이 하나도 안 나왔다. SVG 엔진과 같은 규칙(선택 > 바다 > 광역·특별시 > 넓은 지역, 겹치면 위아래로 비켜 보고 안 되면 생략, 최대 46개)으로 바꿨다(`placeLabels`).
+- **클릭**:
+  - 바다 폴리곤을 먼저 그리고 `zIndex`(바다 1, 육지 2)로 육지를 위에 둔다(해안·제주·울릉군이 바다에 가려 클릭이 안 됐다).
+  - 카카오가 오버레이를 감싸는 div 가 클릭을 지도로만 넘겨, 라벨 밑 폴리곤이 눌리지 않았다. 지역 라벨 래퍼는 `pointer-events: none`(`globals.css` 의 `:has`), 섬 라벨은 라벨 자체가 클릭을 받는다.
+  - 카카오는 `setBounds()`·`setLevel()` 안에서 `idle` 을 동기적으로 부른다. 작은 시도(제주)를 고르면 늦게 끝난 시군구 전환이 선택을 풀어서, `handleIdle` 은 더 새로운 호출이 있으면 결과를 버린다.

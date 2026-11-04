@@ -47,13 +47,19 @@ const KAKAO_LEVEL_RANGE: Record<MapLevel, [number, number]> = {
 const LINE_WIDTH: Record<MapLevel, number> = { sido: 1.4, sigungu: 0.8, emd: 0.8 };
 const SELECTED_LINE_WIDTH: Record<MapLevel, number> = { sido: 3.1, sigungu: 2.2, emd: 1.6 };
 
-/** 육지 폴리곤 불투명도. 지도 타일 위라서 기사 수 색 단계가 보이면서도 지명이 비치도록 둔다 */
-const LAND_FILL_OPACITY = 0.5;
+/** 육지 폴리곤 불투명도. 어두운 스카이뷰 위에서도 기사 수 색 단계가 구분되면서 지형이 살짝 비치도록 둔다 */
+const LAND_FILL_OPACITY = 0.7;
 
 /** 시군구·읍면동 단계에서 한 번에 그리는 최대 폴리곤 수 */
 const MAX_VISIBLE_FEATURES = 260;
-/** 폴리곤이 이 개수 이하일 때만 이름 라벨을 붙인다 (너무 많으면 글자가 겹친다) */
+/** 한 화면에 붙이는 지역 이름 라벨의 최대 개수 (CustomOverlay 가 많으면 느려진다) */
 const MAX_LABELED_FEATURES = 46;
+/** 라벨 상자 크기 추정값(px). .map-label 글자 크기 11.5px 기준. 겹침 판정에만 쓴다 */
+const LABEL_CHAR_WIDTH = 11.5;
+const LABEL_PADDING_WIDTH = 10;
+const LABEL_HEIGHT = 16;
+/** 겹칠 때 위아래로 옮겨 볼 거리(px). 앞에서부터 차례로 시도한다 */
+const LABEL_TRY_OFFSETS = [0, -16, 16, -30, 30];
 /**
  * 폴리곤 겹침 순서. 바다 폴리곤은 해안선과 겹치는 대략적인 다각형이라
  * 육지(행정구역)가 항상 위에 와야 해안 지역·제주도·울릉군을 클릭할 수 있다.
@@ -140,7 +146,13 @@ export class KakaoMapRenderer {
     if (this.destroyed) return;
 
     // 1) 지도 생성
-    this.map = new maps.Map(this.container, { center: new maps.LatLng(36.35, 127.9), level: KAKAO_MAX_LEVEL });
+    // 스카이뷰(위성) 지도를 쓴다. 일반 지도(ROADMAP)는 지명·행정경계가 그려져 있어 우리 라벨·경계와
+    // 겹쳐 보이는데, 카카오 웹 SDK 에는 그것만 끄는 옵션이 없다. 스카이뷰에는 지명·경계가 없다.
+    this.map = new maps.Map(this.container, {
+      center: new maps.LatLng(36.35, 127.9),
+      level: KAKAO_MAX_LEVEL,
+      mapTypeId: maps.MapTypeId.SKYVIEW,
+    });
     this.map.setMaxLevel(KAKAO_MAX_LEVEL); // 전국보다 더 넓게 축소 불가
     this.map.setMinLevel(KAKAO_MIN_LEVEL);
     this.koreaBounds = new maps.LatLngBounds(
@@ -350,10 +362,65 @@ export class KakaoMapRenderer {
     // 2) 섬은 폴리곤 위에 클릭 가능한 라벨로 올린다
     for (const island of ISLAND_MARKERS) this.addIsland(island);
 
-    if (visible.length <= MAX_LABELED_FEATURES) {
-      for (const shape of visible) this.addLabel(shape);
+    // 3) 라벨은 겹치지 않는 것만 골라 붙인다 (폴리곤이 많은 배율에서도 큰 지역 이름은 보이게)
+    for (const { shape, offsetY } of this.placeLabels([...SEA_FEATURES, ...visible])) this.addLabel(shape, offsetY);
+  }
+
+  /**
+   * 라벨을 붙일 지역을 고른다. SVG 엔진(SvgMapRenderer.drawLabels)과 같은 규칙이다.
+   * 1) 우선순위를 매긴다: 선택한 지역 > 바다 > 광역시·특별시 > 넓은 지역
+   * 2) 우선순위가 높은 것부터 자리를 잡되, 이미 놓인 라벨과 겹치면 위아래로 조금씩 옮겨 본다
+   *    (예: 경기도 중심은 서울과 거의 같아서 서울 라벨 아래로 비켜 놓는다)
+   * 3) 화면 밖이거나 끝내 자리가 없으면 생략하고, 최대 MAX_LABELED_FEATURES 개까지만 놓는다
+   * @param shapes 라벨 후보 폴리곤 (바다 포함)
+   * @returns 라벨을 붙일 폴리곤과 세로로 옮길 거리(px)
+   */
+  private placeLabels(shapes: MapFeature[]): Array<{ shape: MapFeature; offsetY: number }> {
+    const projection = this.map.getProjection();
+    const mapSize = this.container.getBoundingClientRect();
+
+    // 1) 후보마다 화면 위치·상자 크기·우선순위를 계산한다
+    const candidates = shapes.map((shape) => {
+      const point = projection.containerPointFromCoords(new this.maps.LatLng(shape.center[1], shape.center[0]));
+      const text = `${shape.properties.name} · ${this.countOf(shape.id)}`;
+      const [[west, south], [east, north]] = shape.bounds;
+      let priority = (east - west) * (north - south);
+      if (/광역시|특별시/.test(shape.properties.name)) priority = 1e3;
+      if (shape.kind === "sea") priority = 1e4;
+      if (shape.id === this.selectedCode) priority = 1e9;
+      return {
+        shape,
+        x: point.x as number,
+        y: point.y as number,
+        width: text.length * LABEL_CHAR_WIDTH + LABEL_PADDING_WIDTH,
+        priority,
+        offsetY: 0,
+      };
+    });
+    candidates.sort((a, b) => b.priority - a.priority);
+
+    // 2) 겹치지 않는 자리를 찾는다
+    const placed: typeof candidates = [];
+    for (const candidate of candidates) {
+      if (placed.length >= MAX_LABELED_FEATURES) break;
+      const isOffScreen =
+        candidate.x < 0 || candidate.y < 0 || candidate.x > mapSize.width || candidate.y > mapSize.height;
+      if (isOffScreen) continue;
+
+      for (const offsetY of LABEL_TRY_OFFSETS) {
+        const overlaps = placed.some(
+          (other) =>
+            Math.abs(other.x - candidate.x) < (other.width + candidate.width) / 2 &&
+            Math.abs(other.y + other.offsetY - (candidate.y + offsetY)) < LABEL_HEIGHT,
+        );
+        if (!overlaps) {
+          candidate.offsetY = offsetY;
+          placed.push(candidate);
+          break;
+        }
+      }
     }
-    for (const sea of SEA_FEATURES) this.addLabel(sea);
+    return placed.map(({ shape, offsetY }) => ({ shape, offsetY }));
   }
 
   /**
@@ -387,14 +454,17 @@ export class KakaoMapRenderer {
   /**
    * 지역 이름 라벨을 올린다. 선택된 지역은 숫자가 붙은 알약 모양으로 보여 준다.
    * @param shape 폴리곤
+   * @param offsetY 다른 라벨과 겹치지 않게 세로로 옮길 거리(px, 기본 0)
    */
-  private addLabel(shape: MapFeature): void {
+  private addLabel(shape: MapFeature, offsetY = 0): void {
     const name = escapeHtml(shape.properties.name);
     const count = this.countOf(shape.id);
+    // .map-label/.map-pill 의 transform(가운데 정렬)을 건드리지 않도록 세로 이동은 margin 으로 준다
+    const shift = offsetY === 0 ? "" : ` style="margin-top:${offsetY}px"`;
     const content =
       shape.id === this.selectedCode
-        ? `<div class="map-pill">${name}<span class="count">${count}</span></div>`
-        : `<div class="map-label">${name} · ${count}</div>`;
+        ? `<div class="map-pill"${shift}>${name}<span class="count">${count}</span></div>`
+        : `<div class="map-label"${shift}>${name} · ${count}</div>`;
     const overlay = new this.maps.CustomOverlay({
       map: this.map,
       position: new this.maps.LatLng(shape.center[1], shape.center[0]),
