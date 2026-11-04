@@ -5,8 +5,8 @@
 - [ ] Vultr 첫 배포 (절차는 README "운영(prod) 배포"). 도메인 `newsmap.duckdns.org`, 배포 사용자 `deploy`
     - [x] 1단계 서버 준비 (2026-11-04): Ubuntu 24.04 LTS·Asia/Seoul, Docker·compose, deploy 사용자(docker 그룹)·`/srv/newsmap`·`/data/postgres`, 배포 전용 SSH 키(PC `~/.ssh/newsmap_deploy`), 비밀번호 SSH 로그인 차단, ufw 22·80·443/tcp, deploy 의 GHCR 로그인(read:packages PAT), DuckDNS A 레코드
     - [ ] (선택) `sudo ufw allow 443/udp` (HTTP/3)
-    - [ ] 2단계 GitHub 등록: Secrets `VULTR_HOST`·`VULTR_USER`·`VULTR_SSH_KEY`(개인키 전체)·`VULTR_SSH_FINGERPRINT`(서버 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 의 `SHA256:...`, 첫 배포에서 mismatch 나면 ECDSA 지문으로)·`FE_KAKAO_MAP_JS_KEY`, Variable `PROD_DOMAIN`
-    - [ ] 3단계 서버에 prod `.env` 3개 작성(`apps/{db,be,rag}/.env`, `chmod 600`)
+    - [x] 2단계 GitHub 등록 (2026-11-04): Secrets `VULTR_HOST`(도메인)·`VULTR_USER`·`VULTR_SSH_KEY`·`VULTR_SSH_FINGERPRINT`(ED25519. 첫 배포에서 mismatch 나면 ECDSA `SHA256:z8Bb9fb3BE8Y5qheleknaNVNUVtWVD9rIleQ7gVgzu8` 로)·`FE_KAKAO_MAP_JS_KEY`, Variable `PROD_DOMAIN`
+    - [x] 3단계 서버에 prod `.env` 3개 작성 (2026-11-04): 로컬 값 기반, 새 `POSTGRES_PASSWORD`·`APP_KEY`, `chmod 600`
     - [ ] 4단계 카카오 Developers Web 도메인에 `https://newsmap.duckdns.org` 추가
     - [ ] 5단계 로컬 DB 덤프 → 서버 복원 → master push(또는 workflow_dispatch)로 첫 배포 → `crontab deploy/crontab`
     - [ ] 확인: `https://newsmap.duckdns.org/up`, 지도·썸네일, 카카오맵 기사 수 색칠 화면
