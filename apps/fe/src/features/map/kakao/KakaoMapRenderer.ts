@@ -54,6 +54,12 @@ const LAND_FILL_OPACITY = 0.5;
 const MAX_VISIBLE_FEATURES = 260;
 /** 폴리곤이 이 개수 이하일 때만 이름 라벨을 붙인다 (너무 많으면 글자가 겹친다) */
 const MAX_LABELED_FEATURES = 46;
+/**
+ * 폴리곤 겹침 순서. 바다 폴리곤은 해안선과 겹치는 대략적인 다각형이라
+ * 육지(행정구역)가 항상 위에 와야 해안 지역·제주도·울릉군을 클릭할 수 있다.
+ */
+const SEA_Z_INDEX = 1;
+const LAND_Z_INDEX = 2;
 
 /**
  * 카카오 지도 레벨에 맞는 지도 단계를 고른다.
@@ -107,6 +113,8 @@ export class KakaoMapRenderer {
   private legend: number[] = [];
   private selectedCode: string | null = null;
   private destroyed = false;
+  /** handleIdle 호출 번호. 경계를 불러오는 동안 더 새로운 idle 이 오면 오래된 결과를 버린다 */
+  private idleSequence = 0;
 
   /**
    * @param container 지도를 넣을 DOM 요소
@@ -248,15 +256,23 @@ export class KakaoMapRenderer {
     this.mapListeners.push({ type, handler });
   }
 
-  /** 줌·이동이 끝났을 때: 단계가 바뀌었으면 경계를 불러오고, 화면에 보이는 폴리곤을 다시 그린다 */
+  /**
+   * 줌·이동이 끝났을 때: 단계가 바뀌었으면 경계를 불러오고, 화면에 보이는 폴리곤을 다시 그린다.
+   *
+   * 카카오는 setBounds()·setLevel() 안에서 idle 을 바로(동기적으로) 부른다. 그래서 focusOn() 이
+   * setBounds() 로 잠깐 시군구 레벨까지 들어갔다가 setLevel() 로 시도 레벨로 되돌리면, 시군구 경계를
+   * 기다리던 첫 호출이 나중에 끝나며 단계를 시군구로 바꾸고 선택을 풀어 버린다(제주 선택이 풀리던 원인).
+   * 경계를 기다린 뒤 더 새로운 호출이 있었으면 이 호출의 결과는 버린다.
+   */
   private async handleIdle(): Promise<void> {
+    const sequence = ++this.idleSequence;
     const wantedLevel = levelForKakao(this.map.getLevel());
     if (wantedLevel !== this.level) {
       const needsLoading = !isLevelCached(wantedLevel);
       if (needsLoading) this.callbacks.onLoadingChange(true);
       const features = await loadLevelFeatures(wantedLevel);
       if (needsLoading) this.callbacks.onLoadingChange(false);
-      if (this.destroyed) return;
+      if (this.destroyed || sequence !== this.idleSequence) return;
       this.level = wantedLevel;
       this.levelFeatures = features;
       this.callbacks.onLevelChange(wantedLevel);
@@ -328,8 +344,10 @@ export class KakaoMapRenderer {
     // 시도 단계는 꼭짓점을 반으로 줄여도 충분히 매끄럽다
     const thinStep = this.level === "sido" ? 2 : 1;
 
-    for (const shape of visible) this.addPolygon(shape, thinStep);
-    for (const sea of SEA_FEATURES) this.addPolygon(sea, 1);
+    // 1) 바다를 먼저, 육지를 나중에 그린다. 겹치는 곳은 zIndex 로도 육지가 위에 오게 한다
+    for (const sea of SEA_FEATURES) this.addPolygon(sea, 1, SEA_Z_INDEX);
+    for (const shape of visible) this.addPolygon(shape, thinStep, LAND_Z_INDEX);
+    // 2) 섬은 폴리곤 위에 클릭 가능한 라벨로 올린다
     for (const island of ISLAND_MARKERS) this.addIsland(island);
 
     if (visible.length <= MAX_LABELED_FEATURES) {
@@ -342,8 +360,9 @@ export class KakaoMapRenderer {
    * 폴리곤 하나를 지도에 올리고 클릭·호버 이벤트를 붙인다.
    * @param shape 폴리곤
    * @param thinStep 꼭짓점 줄이기 간격
+   * @param zIndex 겹침 순서 (SEA_Z_INDEX 또는 LAND_Z_INDEX)
    */
-  private addPolygon(shape: MapFeature, thinStep: number): void {
+  private addPolygon(shape: MapFeature, thinStep: number, zIndex: number): void {
     const maps = this.maps;
     const geometry = shape.geometry;
     const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
@@ -352,7 +371,7 @@ export class KakaoMapRenderer {
       thinOutRing(polygon[0], thinStep).map(([lng, lat]) => new maps.LatLng(lat, lng)),
     );
 
-    const polygon = new maps.Polygon({ map: this.map, path, ...this.styleOf(shape) });
+    const polygon = new maps.Polygon({ map: this.map, path, zIndex, ...this.styleOf(shape) });
     maps.event.addListener(polygon, "click", () => this.callbacks.onSelect(shape));
     maps.event.addListener(polygon, "mouseover", () => {
       if (shape.id === this.selectedCode) return;
@@ -387,8 +406,8 @@ export class KakaoMapRenderer {
   }
 
   /**
-   * 섬 라벨과, 클릭을 받을 투명 마커를 올린다.
-   * (CustomOverlay 는 보이기만 하고 클릭은 투명 마커가 받는다)
+   * 섬 라벨을 올리고, 라벨 자체가 클릭을 받게 한다.
+   * 섬은 화면에서 너무 작아 폴리곤 대신 보이는 라벨을 클릭 영역으로 쓴다.
    * @param island 섬
    */
   private addIsland(island: IslandMarker): void {
@@ -396,15 +415,15 @@ export class KakaoMapRenderer {
     const position = new maps.LatLng(island.center[1], island.center[0]);
     const name = escapeHtml(island.name);
     const count = this.countOf(island.code);
-    const content =
-      island.code === this.selectedCode
-        ? `<div class="map-pill">${name}<span class="count">${count}</span></div>`
-        : `<div class="map-label">${name} · ${count}</div>`;
 
-    this.shapes.push(new maps.CustomOverlay({ map: this.map, position, content, zIndex: 6 }));
+    // 1) 라벨 요소를 직접 만든다. .map-label/.map-pill 은 pointer-events: none 이라 섬 라벨만 클릭을 켠다
+    const content = document.createElement("div");
+    content.className = island.code === this.selectedCode ? "map-pill map-island" : "map-label map-island";
+    content.innerHTML =
+      island.code === this.selectedCode ? `${name}<span class="count">${count}</span>` : `${name} · ${count}`;
+    content.addEventListener("click", () => this.callbacks.onSelect(island));
 
-    const marker = new maps.Marker({ map: this.map, position, opacity: 0.001 });
-    maps.event.addListener(marker, "click", () => this.callbacks.onSelect(island));
-    this.shapes.push(marker);
+    // 2) clickable: true 로 라벨 클릭이 아래 바다 폴리곤·지도로 넘어가지 않게 막는다
+    this.shapes.push(new maps.CustomOverlay({ map: this.map, position, content, clickable: true, zIndex: 6 }));
   }
 }

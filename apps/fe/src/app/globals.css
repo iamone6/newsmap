@@ -115,6 +115,20 @@ body {
   font-weight: 600;
   pointer-events: none;
 }
+/*
+ * 카카오는 오버레이 내용을 클래스 없는 div 로 한 번 감싸고, 그 div 가 클릭을 받아 지도로만 넘긴다.
+ * 그러면 라벨 아래 폴리곤(제주도처럼 라벨이 지역을 거의 덮는 곳)을 클릭할 수 없으므로
+ * 지역 라벨을 감싼 div 는 클릭을 통과시킨다. 섬 라벨(.map-island)은 클릭을 받아야 하므로 뺀다.
+ */
+div:has(> .map-label:not(.map-island)),
+div:has(> .map-pill:not(.map-island)) {
+  pointer-events: none;
+}
+/* 섬 라벨은 그 자체가 클릭 영역이다 (KakaoMapRenderer.addIsland) */
+.map-island {
+  pointer-events: auto;
+  cursor: pointer;
+}
 .map-pill .count {
   background: var(--color-bg);
   color: var(--color-accent-800);
