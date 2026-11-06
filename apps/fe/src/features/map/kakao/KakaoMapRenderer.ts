@@ -50,9 +50,11 @@ const OUTSIDE_MASK_OPACITY = 0.62;
  */
 const OUTSIDE_MASK_EXTENT = [95, 15, 165, 55] as const;
 
-/** 첫 화면과 [전국] 버튼의 확대 정도 (화면 숫자 3 = 카카오 레벨 11, 시도 단계) */
-const HOME_ZOOM_VALUE = 3;
-const HOME_KAKAO_LEVEL = KAKAO_MAX_LEVEL - HOME_ZOOM_VALUE + 1;
+/**
+ * 첫 화면과 [전국] 버튼의 확대 정도(화면 숫자). 모바일은 전국이 다 보이게 1, PC 는 한 단계 확대한 2 (사용자 결정, 2026-11-06).
+ * 카카오 레벨로는 1 = 13, 2 = 12 이다 (homeKakaoLevel).
+ */
+const HOME_ZOOM_VALUE = { mobile: 1, desktop: 2 };
 /** 첫 화면과 [전국] 버튼의 지도 중심 [위도, 경도] (남한 내륙 가운데) */
 const HOME_CENTER: [number, number] = [36.35, 127.9];
 
@@ -186,6 +188,11 @@ export class KakaoMapRenderer {
   private isFocusing = false;
   /** 진행 중인 이동. 새 이동은 이게 지금 단계를 마치고 멈출 때까지 기다린다(움직이는 중에 좌표를 재면 틀어진다) */
   private currentFocus: Promise<void> = Promise.resolve();
+  /**
+   * 줄 서 있는 이동이 결국 도착할 카카오 레벨. 없으면 null.
+   * [+]·[-] 를 빠르게 여러 번 눌러도 누른 만큼 쌓이게, 다음 단계는 지금 레벨이 아니라 이 값에서 센다.
+   */
+  private intendedLevel: number | null = null;
 
   /**
    * @param container 지도를 넣을 DOM 요소
@@ -213,10 +220,10 @@ export class KakaoMapRenderer {
     // 1) 지도 생성
     // 스카이뷰(위성) 지도를 쓴다. 일반 지도(ROADMAP)는 지명·행정경계가 그려져 있어 우리 라벨·경계와
     // 겹쳐 보이는데, 카카오 웹 SDK 에는 그것만 끄는 옵션이 없다. 스카이뷰에는 지명·경계가 없다.
-    // 첫 화면은 확대 정도 3(HOME_KAKAO_LEVEL)으로 남한 가운데에서 시작한다 ([전국] 버튼과 같다)
+    // 첫 화면은 [전국] 버튼과 같은 확대 정도(모바일 1, PC 2)로 남한 가운데에서 시작한다
     this.map = new maps.Map(this.container, {
       center: new maps.LatLng(...HOME_CENTER),
-      level: HOME_KAKAO_LEVEL,
+      level: this.homeKakaoLevel(),
       mapTypeId: maps.MapTypeId.SKYVIEW,
     });
     this.map.setMaxLevel(KAKAO_MAX_LEVEL); // 전국보다 더 넓게 축소 불가
@@ -291,23 +298,43 @@ export class KakaoMapRenderer {
 
   /** 한 단계 확대 */
   zoomIn(): void {
-    this.map?.setLevel(this.map.getLevel() - 1, { animate: true });
+    this.zoomStep(-1);
   }
 
   /** 한 단계 축소 */
   zoomOut(): void {
-    this.map?.setLevel(Math.min(KAKAO_MAX_LEVEL, this.map.getLevel() + 1), { animate: true });
+    this.zoomStep(1);
+  }
+
+  /**
+   * 화면 가운데를 기준으로 한 단계 확대·축소한다.
+   * 카카오는 확대 애니메이션이 타일을 기다리는 동안 들어온 setLevel 을 무시해서, [+] 를 빠르게 누르면 클릭이
+   * 사라졌다. 그래서 지역 이동과 같은 줄(enqueueFocus)에 세우고, 다음 단계는 도착할 레벨(intendedLevel)에서 센다.
+   * @param delta 카카오 레벨 변화 (확대 -1, 축소 +1)
+   */
+  private zoomStep(delta: number): void {
+    if (!this.map) return;
+    const base = this.intendedLevel ?? this.map.getLevel();
+    const level = Math.min(KAKAO_MAX_LEVEL, Math.max(KAKAO_MIN_LEVEL, base + delta));
+    if (level === base) return;
+    this.intendedLevel = level;
+    this.enqueueFocus(() => {
+      const center = this.map.getCenter();
+      // 지금 중심을 지금 자리에 둔 채(이동 없이) 레벨만 바꾼다
+      const point = this.map.getProjection().containerPointFromCoords(center);
+      return { center, level, anchor: { x: point.x, y: point.y } };
+    }, level);
   }
 
   /** 전국 보기로 되돌린다 */
   resetView(): void {
     if (!this.map) return;
-    // 첫 화면과 같은 중심·확대 정도(3)로 부드럽게 돌아간다. 선택이 풀려 목록 패널이 닫히므로 화면 가운데 기준이다
+    // 첫 화면과 같은 중심·확대 정도(모바일 1, PC 2)로 부드럽게 돌아간다. 선택이 풀려 목록 패널이 닫히므로 화면 가운데 기준이다
     this.enqueueFocus(() => {
       const { width, height } = this.container.getBoundingClientRect();
       return {
         center: new this.maps.LatLng(...HOME_CENTER),
-        level: HOME_KAKAO_LEVEL,
+        level: this.homeKakaoLevel(),
         anchor: { x: width / 2, y: height / 2 },
       };
     });
@@ -335,8 +362,11 @@ export class KakaoMapRenderer {
    * 지도 이동을 줄 세운다. 앞의 이동은 sequence 가 바뀐 걸 보고 지금 단계(애니메이션 한 번)만 마치고 멈추고,
    * 이 이동은 그 뒤에 시작한다. 목표는 시작하는 순간 계산한다(움직이는 중에 좌표를 재면 틀어진다).
    * @param targetOf 시작할 때 부를 목표 계산 함수
+   * @param intendedLevel 이 이동이 도착할 레벨을 미리 알면 넘긴다 (확대·축소 버튼)
    */
-  private enqueueFocus(targetOf: () => FocusTarget): void {
+  private enqueueFocus(targetOf: () => FocusTarget, intendedLevel: number | null = null): void {
+    // 확대·축소 버튼은 도착할 레벨을 미리 알려 준다. 지역 이동·[전국] 은 시작할 때 정해지므로 일단 비운다
+    this.intendedLevel = intendedLevel;
     const sequence = ++this.focusSequence;
     const previous = this.currentFocus;
     this.currentFocus = previous
@@ -375,6 +405,7 @@ export class KakaoMapRenderer {
     // 기다리는 사이 더 새로운 이동이 들어왔으면 시작하지 않는다
     if (isStale()) return;
     const { center, level: targetLevel, anchor } = targetOf();
+    this.intendedLevel = targetLevel;
 
     this.isFocusing = true;
     try {
@@ -403,14 +434,27 @@ export class KakaoMapRenderer {
         if (isStale()) return;
         await new Promise((resolve) => setTimeout(resolve, FOCUS_ZOOM_DURATION + ZOOM_SETTLE));
         if (isStale()) return;
+        // 카카오가 애니메이션 호출을 무시했으면(타일 대기 중 겹침 등) 애니메이션 없이 목표 레벨로 맞춘다
+        if (this.map.getLevel() !== targetLevel) this.map.setLevel(targetLevel, { anchor: center });
       }
     } finally {
       // 3) 이 이동이 마지막 호출일 때만 단계 전환 (더 새로운 이동이 있으면 그쪽이 끝낸다)
       if (sequence === this.focusSequence && !this.destroyed && this.map) {
         this.isFocusing = false;
+        this.intendedLevel = null;
         void this.handleIdle();
       }
     }
+  }
+
+  /**
+   * 첫 화면·[전국] 버튼의 카카오 레벨. 지도 요소 폭으로 모바일인지 본다(부를 때마다 재므로 창 크기를 바꾼 뒤에도 맞다).
+   * @returns 카카오 레벨 (모바일 13, PC 12)
+   */
+  private homeKakaoLevel(): number {
+    const isMobile = this.container.getBoundingClientRect().width <= MOBILE_MAX_WIDTH;
+    const zoomValue = isMobile ? HOME_ZOOM_VALUE.mobile : HOME_ZOOM_VALUE.desktop;
+    return KAKAO_MAX_LEVEL - zoomValue + 1;
   }
 
   /**

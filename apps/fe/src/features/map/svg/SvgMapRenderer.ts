@@ -46,10 +46,10 @@ const MAX_ZOOM = 26;
 const ZOOM_BUTTON_FACTOR = 1.7;
 
 /**
- * 첫 화면과 [전국] 버튼의 배율. 화면 숫자 3 이 되면서(배율 1.7^1.5~1.7^2.5) 시도 단계(배율 < 2.4)에
- * 머무는 값으로 잡아, 카카오(숫자 3 = 레벨 11, 시도)와 똑같이 "시·도 3" 으로 보이게 한다. 1.7^1.6 ≈ 2.34
+ * 첫 화면과 [전국] 버튼의 배율. 화면 숫자로 모바일 1(배율 1, 전국이 꼭 맞음), PC 2(버튼 한 칸 확대한 1.7배)다.
+ * 카카오와 같다 (사용자 결정, 2026-11-06).
  */
-const HOME_SCALE = ZOOM_BUTTON_FACTOR ** 1.6;
+const HOME_SCALE = { mobile: 1, desktop: ZOOM_BUTTON_FACTOR };
 
 /**
  * d3 줌 배율을 화면에 보여 줄 확대 정도로 바꾼다. 배율 1(전국)이 1 이고, 버튼 한 번(×1.7)마다 1 씩 커진다.
@@ -207,18 +207,20 @@ export class SvgMapRenderer {
     this.notifyZoom();
     this.drawAll();
 
-    // 첫 화면은 확대 정도 3(HOME_SCALE)으로 화면 가운데를 기준으로 확대해 시작한다 ([전국] 버튼과 같다)
+    // 첫 화면은 [전국] 버튼과 같은 확대 정도(모바일 1, PC 2)로 화면 가운데를 기준으로 확대해 시작한다
     this.svg.call(this.zoomBehavior.transform, this.homeTransform());
   }
 
   /**
    * 첫 화면·[전국] 버튼의 줌 상태. 전국이 화면에 맞게 그려진 상태(배율 1)에서 화면 가운데를 기준으로 HOME_SCALE 배.
+   * 모바일인지는 부를 때마다 창 폭으로 다시 본다(창 크기를 바꾼 뒤 [전국] 을 눌러도 맞게).
    * @returns d3 줌 변환
    */
   private homeTransform(): ZoomTransform {
+    const scale = window.innerWidth <= MOBILE_MAX_WIDTH ? HOME_SCALE.mobile : HOME_SCALE.desktop;
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    return zoomIdentity.translate(centerX - HOME_SCALE * centerX, centerY - HOME_SCALE * centerY).scale(HOME_SCALE);
+    return zoomIdentity.translate(centerX - scale * centerX, centerY - scale * centerY).scale(scale);
   }
 
   /**
