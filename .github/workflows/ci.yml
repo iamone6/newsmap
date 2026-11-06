@@ -79,13 +79,15 @@ jobs:
           docker exec db psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d newsmap -c "CREATE DATABASE newsmap_test"
           docker exec -i db psql -q -v ON_ERROR_STOP=1 -U "$DB_USER" -d newsmap_test < contracts/schema.sql
 
+      # 설정값은 -e 환경변수로 넣는다. 빈 .env 는 Laravel 이 앱을 띄울 때마다 .env 를 읽으려다
+      # "file_get_contents(/app/.env)" 경고를 내는 것(php artisan test 가 기능 테스트마다 보여 줌)을 막는다
       - name: composer install + 테스트 + pint
         run: |
           docker run --rm --network ci -v "$PWD/apps/be:/app" -w /app \
             -e APP_KEY="base64:$(openssl rand -base64 32)" \
             -e DB_HOST=db -e DB_PORT=5432 -e DB_USERNAME="$DB_USER" -e DB_PASSWORD="$DB_PASSWORD" \
             newsmap-be:ci \
-            sh -c "composer install --no-interaction --prefer-dist && php artisan test --compact && vendor/bin/pint --test"
+            sh -c "touch .env && composer install --no-interaction --prefer-dist && php artisan test --compact && vendor/bin/pint --test"
 
   rag:
     runs-on: ubuntu-24.04
