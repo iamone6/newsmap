@@ -4,13 +4,18 @@
  * - 행정구역 경계: public/geo/{sido,sigungu,emd}.topo.json (scripts/build-geo.mjs 로 생성)
  * - 바다(서해·남해·동해)와 섬(울릉도·독도)은 행정경계가 없어서 이 파일에서 직접 정의한다.
  * - 한 번 불러온 데이터는 메모리에 저장(캐시)해 두고 다시 쓴다.
+ * - 일반구가 있는 시(수원·포항 등)는 시군구 단계에서 시 하나다. 구 코드는 districtToCity.json 으로 시 코드로 바꾼다.
  */
 import { geoArea, geoBounds, geoCentroid } from "d3";
 import { feature as topoFeature } from "topojson-client";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import type { Polygon } from "geojson";
 import type { RegionRef } from "@/lib/api/types";
+import districtToCity from "./districtToCity.json";
 import type { IslandMarker, LngLat, MapFeature, MapLevel, RegionShapeProperties } from "./types";
+
+/** 일반구 코드(5자리) → 시 코드(5자리). scripts/build-geo.mjs 가 경계와 함께 만든다 (예: 47111 → 47110) */
+const DISTRICT_TO_CITY: Record<string, string> = districtToCity;
 
 /** TopoJSON 파일 안의 오브젝트 이름 (build-geo.mjs 에서 "regions" 로 저장) */
 const TOPO_OBJECT_NAME = "regions";
@@ -181,7 +186,18 @@ export function isAdminLevel(level: RegionRef["level"]): level is MapLevel {
 }
 
 /**
+ * 지도 경계에 있는 코드로 바꾼다. 일반구 코드는 그 시 코드가 된다(시군구 단계에 구 경계가 없으므로).
+ * API·DB 는 일반구 코드(예: 41117 수원시 영통구)를 그대로 쓰므로, 지도에서 찾기 전에 이 함수를 거친다.
+ * @param code 지역 코드
+ * @returns 지도 경계 코드 (일반구가 아니면 그대로)
+ */
+export function toMapCode(code: string): string {
+  return DISTRICT_TO_CITY[code] ?? code;
+}
+
+/**
  * 코드로 지도 위 지역(폴리곤 또는 섬)을 찾는다. 필요한 단계 경계를 자동으로 불러온다.
+ * 일반구 코드는 그 시를 돌려준다 (예: 47111 포항시남구 → 47110 포항시).
  * @param code 지역 코드
  * @returns 찾은 폴리곤/섬. 없으면 null
  */
@@ -190,7 +206,8 @@ export async function findRegion(code: string): Promise<MapFeature | IslandMarke
   if (level === "sea") return SEA_FEATURES.find((sea) => sea.id === code) ?? null;
   if (level === "island") return ISLAND_MARKERS.find((island) => island.code === code) ?? null;
   const features = await loadLevelFeatures(level);
-  return features.find((shape) => shape.id === code) ?? null;
+  const mapCode = toMapCode(code);
+  return features.find((shape) => shape.id === mapCode) ?? null;
 }
 
 /**
@@ -209,8 +226,10 @@ export async function regionPathOf(region: RegionRef): Promise<{ label: string; 
     if (sido) path.push({ label: nameOf(sido), code: region.code.slice(0, 2) });
   }
   if (region.level === "emd") {
-    const sigungu = await findRegion(region.code.slice(0, 5));
-    if (sigungu) path.push({ label: nameOf(sigungu), code: region.code.slice(0, 5) });
+    // 읍면동 코드 앞 5자리는 일반구일 수 있어(예: 41117 영통구) 시 코드로 바꿔서 찾는다
+    const sigunguCode = toMapCode(region.code.slice(0, 5));
+    const sigungu = await findRegion(sigunguCode);
+    if (sigungu) path.push({ label: nameOf(sigungu), code: sigunguCode });
   }
   path.push({ label: region.name, code: region.code });
   return path;
