@@ -16,14 +16,13 @@ interface LevelChipProps {
 
 /** 칩 안에 들어가는 작은 원형 확대·축소 버튼 스타일 */
 const STEP_BUTTON_CLASSES =
-  "inline-flex size-6 cursor-pointer items-center justify-center rounded-full bg-neutral-100 text-[13px] leading-none text-ink hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 max-md:hidden";
+  "inline-flex size-6 cursor-pointer items-center justify-center rounded-full bg-neutral-100 text-[13px] leading-none text-ink hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * 지금 지도가 어떤 단계(시도/시군구/읍면동)를 보여 주는지와 확대 정도를 알려 주는 칩.
  * - 점 3개 중 현재 단계까지 색이 칠해진다.
  * - 오른쪽의 [ - ] 숫자 [ + ] 로 확대 정도를 보고 바꾸고, [전국] 으로 전국 보기로 돌아간다.
- *   숫자는 1 이 전국이고 확대할수록 커진다.
- *   모바일에서는 손가락으로 확대하므로 버튼은 숨기고 숫자만 보여 준다(예전 아래쪽 가운데 줌 버튼과 같은 규칙).
+ *   숫자는 1 이 전국이고 확대할수록 커진다. 모바일에서도 버튼을 보여 준다(2026-11-06 사용자 결정).
  * @param props LevelChipProps 참고
  * @returns 단계 칩
  */
@@ -67,7 +66,7 @@ export function LevelChip({ level, zoom, onZoomIn, onZoomOut, onReset }: LevelCh
           </button>
           <button
             type="button"
-            className="ml-1 cursor-pointer rounded-full px-2 py-0.5 font-heading text-[12px] text-ink hover:bg-neutral-100 max-md:hidden"
+            className="ml-1 cursor-pointer rounded-full px-2 py-0.5 font-heading text-[12px] text-ink hover:bg-neutral-100"
             onClick={onReset}
           >
             전국
