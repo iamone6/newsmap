@@ -70,7 +70,8 @@ def fetch_new_items(
             source_host = None
             source_name = None
 
-        if repository.find_seen_article_id(conn, feed_key=feed.feed_key, rss_link=link) is not None:
+        # 저장한 기사뿐 아니라 지역이 없어 건너뛴 링크도 다시 열지 않는다
+        if repository.is_seen(conn, feed_key=feed.feed_key, rss_link=link):
             continue
 
         items.append(

@@ -9,6 +9,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import StrEnum
 
 from rag import (
     chunker,
@@ -39,10 +40,29 @@ FEEDS_WITH_NAIVE_KST_PUBDATE = {"imaeil"}
 
 @dataclass
 class RunResult:
+    """피드 하나를 처리한 결과 건수. 건너뛴 기사는 실패가 아니라서 failed 에 넣지 않는다."""
+
     total_new: int
     processed: int
     failed: int
     skipped_duplicate_canonical: int
+    skipped_no_region: int = 0
+    """LLM 이 지역과 무관하다고 판단해 저장하지 않은 기사 수 (skip_reason = 'no region')"""
+    skipped_not_match_region: int = 0
+    """지역명은 있었지만 코드 매칭이 모두 실패해 저장하지 않은 기사 수 (skip_reason = 'not match region')"""
+
+
+class ItemOutcome(StrEnum):
+    """기사 하나를 처리한 결과"""
+
+    SAVED = "saved"
+    """새 기사로 저장"""
+    DUPLICATE_CANONICAL = "duplicate_canonical"
+    """canonical_url 이 같은 기사가 이미 있어 seen_rss_links 만 기록"""
+    SKIPPED_NO_REGION = "skipped_no_region"
+    """지역과 무관한 기사라 저장하지 않음"""
+    SKIPPED_NOT_MATCH_REGION = "skipped_not_match_region"
+    """지역 코드 매칭이 모두 실패해 저장하지 않음"""
 
 
 def _struct_to_datetime(struct: time.struct_time | None, *, feed_key: str | None = None) -> datetime | None:
@@ -114,8 +134,49 @@ def _build_images_to_save(
     return images_to_save
 
 
-def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedItem) -> bool:
-    """신규 기사 하나를 처리한다. canonical_url 중복이면 False(새 기사 아님), 저장했으면 True."""
+def _skip_reason_for(sido_name: str | None, region_match: regions.RegionMatch) -> str | None:
+    """지역 코드가 하나도 없어 기사를 건너뛰어야 하는지, 그렇다면 사유가 무엇인지 정한다.
+
+    지도에서 지역을 골라 기사를 보는 서비스라 지역 코드가 없는 기사는 저장하지 않는다
+    (decisions 문서 4장, 2026-11-05). 시도·시군구·읍면동 중 코드가 하나라도 있으면 저장한다.
+
+    Args:
+        sido_name: LLM 이 돌려준 시도명. 지역과 무관하면 None(또는 빈 문자열).
+        region_match: 이름 → 코드 매칭 결과.
+
+    Returns:
+        건너뛸 사유(repository.SKIP_NO_REGION / SKIP_NOT_MATCH_REGION). 저장해야 하면 None.
+    """
+    has_any_code = any((region_match.sido_code, region_match.sigungu_code, region_match.emd_code))
+    if has_any_code:
+        return None
+    if not (sido_name or "").strip():
+        return repository.SKIP_NO_REGION
+    return repository.SKIP_NOT_MATCH_REGION
+
+
+_OUTCOME_BY_SKIP_REASON = {
+    repository.SKIP_NO_REGION: ItemOutcome.SKIPPED_NO_REGION,
+    repository.SKIP_NOT_MATCH_REGION: ItemOutcome.SKIPPED_NOT_MATCH_REGION,
+}
+
+
+def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedItem) -> ItemOutcome:
+    """신규 기사 하나를 처리한다.
+
+    1) 페이지 파싱 → canonical_url 이 이미 있으면 seen 만 기록하고 끝
+    2) LLM 판단 → 지역 코드가 하나도 없으면 건너뛴 링크로 기록하고 끝 (청킹·임베딩·저장 안 함)
+    3) 청킹·임베딩 → 기사와 하위 테이블을 한 트랜잭션으로 저장
+
+    Args:
+        conn: DB 커넥션.
+        settings: 환경 설정.
+        feed: 피드 설정.
+        item: 수집한 RSS 항목.
+
+    Returns:
+        처리 결과.
+    """
     article_url = item.rss_link
     if feed.type == "google_news_search":
         article_url = google_news.decode_real_url(item.rss_link)
@@ -127,7 +188,7 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
     existing_id = repository.find_article_id_by_canonical_url(conn, parsed.canonical_url)
     if existing_id is not None:
         repository.mark_seen(conn, feed_key=item.feed_key, rss_link=item.rss_link, article_id=existing_id)
-        return False
+        return ItemOutcome.DUPLICATE_CANONICAL
 
     published_at, published_at_source = _resolve_published_at(item)
     rss_created_at = _struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
@@ -145,6 +206,19 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
     region_match = regions.match_region(
         conn, sido_name=judgment.sido_name, sigungu_name=judgment.sigungu_name, emd_name=judgment.emd_name
     )
+    # 지역 코드가 하나도 없으면 청킹·임베딩 전에 건너뛴다. 링크는 기록해 다음 실행에서 다시 열지 않는다
+    skip_reason = _skip_reason_for(judgment.sido_name, region_match)
+    if skip_reason is not None:
+        repository.mark_skipped(conn, feed_key=item.feed_key, rss_link=item.rss_link, skip_reason=skip_reason)
+        log.info(
+            "지역 없음으로 건너뜀: feed_key=%s rss_link=%s 사유=%s 시도=%s",
+            item.feed_key,
+            item.rss_link,
+            skip_reason,
+            judgment.sido_name,
+        )
+        return _OUTCOME_BY_SKIP_REASON[skip_reason]
+
     region_to_save = None
     region_codes: list[str] = []
     if judgment.sido_name:
@@ -221,7 +295,7 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
         region_codes=region_codes,
     )
     repository.save_article(conn, article)
-    return True
+    return ItemOutcome.SAVED
 
 
 def run(feed_key: str) -> RunResult:
@@ -241,28 +315,33 @@ def run(feed_key: str) -> RunResult:
     )
     try:
         items = collector.fetch_new_items(conn, feed, feeds_file, max_items=settings.max_items_per_batch)
-        processed = failed = skipped_duplicate = 0
+        counts = dict.fromkeys(ItemOutcome, 0)
+        failed = 0
         for item in items:
             try:
-                saved = _process_item(conn, settings, feed, item)
-                if saved:
-                    processed += 1
-                else:
-                    skipped_duplicate += 1
+                counts[_process_item(conn, settings, feed, item)] += 1
             except Exception:
                 log.exception("기사 처리 실패: feed_key=%s rss_link=%s", feed_key, item.rss_link)
                 failed += 1
+        result = RunResult(
+            total_new=len(items),
+            processed=counts[ItemOutcome.SAVED],
+            failed=failed,
+            skipped_duplicate_canonical=counts[ItemOutcome.DUPLICATE_CANONICAL],
+            skipped_no_region=counts[ItemOutcome.SKIPPED_NO_REGION],
+            skipped_not_match_region=counts[ItemOutcome.SKIPPED_NOT_MATCH_REGION],
+        )
         summary_log.info(
-            "feed_key=%s 처리 완료 - 총=%d 성공=%d 실패=%d 중복=%d",
+            "feed_key=%s 처리 완료 - 총=%d 성공=%d 실패=%d 중복=%d 지역없음=%d 지역매칭실패=%d",
             feed_key,
-            len(items),
-            processed,
-            failed,
-            skipped_duplicate,
+            result.total_new,
+            result.processed,
+            result.failed,
+            result.skipped_duplicate_canonical,
+            result.skipped_no_region,
+            result.skipped_not_match_region,
         )
-        return RunResult(
-            total_new=len(items), processed=processed, failed=failed, skipped_duplicate_canonical=skipped_duplicate
-        )
+        return result
     finally:
         conn.close()
 

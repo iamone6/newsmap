@@ -62,7 +62,7 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 | `wire_agencies` | 통신사 정규화 (이름 + 별칭 배열) |
 | `sections` | 섹션 대분류 6개 (정치, 경제, 사회, 문화, 스포츠, 과학) |
 | `articles` | 기사. `canonical_url`은 전역 유일. `wire_agency_id`가 NULL이면 자사 생산이거나 판단 불가 |
-| `seen_rss_links` | 기사 페이지를 열기 전에 `(feed_key, rss_link)`로 중복을 거름 |
+| `seen_rss_links` | 검사를 마친 RSS 링크. 기사 페이지를 열기 전에 `(feed_key, rss_link)`로 중복을 거름. 지역이 없어 건너뛴 링크는 `article_id` NULL + `skip_reason` |
 | `article_regions` | 기사와 지역의 N:M 관계 (코드 + LLM 원문 이름, 대표 지역은 `is_primary`) |
 | `article_sections` | 기사와 섹션의 N:M 관계 (대표 섹션은 `is_primary`) |
 | `article_images` | 이미지와 썸네일 (캡션, 출처 원문, 라이선스 통신사) |
@@ -70,12 +70,13 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 
 ### 수집 워커가 지켜야 할 규칙
 
-- `seen_rss_links`에 이미 있는 `(feed_key, rss_link)`는 기사 페이지를 열지 않습니다. RSS의 `updated_at`만 달라졌으면 `articles.rss_updated_at`만 갱신합니다.
+- `seen_rss_links`에 이미 있는 `(feed_key, rss_link)`는 기사 페이지를 열지 않습니다(건너뛴 링크 포함). 저장된 기사이고 RSS의 `updated_at`만 달라졌으면 `articles.rss_updated_at`만 갱신합니다.
 - 페이지를 파싱한 뒤 `canonical_url`이 이미 있으면 새 기사를 만들지 않습니다. 대신 기존 기사 id로 `seen_rss_links`에만 기록합니다.
+- 지역 코드(시도·시군구·읍면동)가 하나도 없는 기사는 저장하지 않습니다. LLM 판단 직후 건너뛰고 `seen_rss_links`에 `article_id` NULL로 기록합니다. 사유는 `skip_reason`에 남깁니다: LLM이 지역과 무관하다고 본 기사는 `'no region'`, 지역명은 있지만 코드 매칭이 모두 실패한 기사는 `'not match region'`. 일부 단위만 매칭되면 그대로 저장합니다.
 - 기사, 지역, 섹션, 이미지, 청크, `seen_rss_links`는 모든 처리(LLM 판단, 임베딩)가 끝난 뒤 **한 트랜잭션**으로 저장합니다. 중간에 실패하면 아무것도 저장되지 않고 다음 cron에서 다시 시도됩니다.
 - `published_at`은 RSS 발행일, 없으면 RSS 생성일, 그것도 없으면 수집 시각으로 채웁니다. 어떤 값을 썼는지는 `published_at_source`에 기록합니다.
 - `article_chunks`의 `region_codes`(`regions.parent_code`를 따라 상위 지역까지 펼친 코드. 예: 매탄1동 → 영통구 → 수원시 → 경기도), `section_ids`, `published_at`, `is_wire`는 기사 값을 복사해서 채웁니다.
-- 보존 기간(최대 1년)이 지난 기사는 `DELETE FROM articles WHERE created_at < now() - interval '1 year'`로 지웁니다. 하위 테이블은 `ON DELETE CASCADE`로 같이 지워집니다.
+- 보존 기간(최대 1년)이 지난 기사는 `DELETE FROM articles WHERE created_at < now() - interval '1 year'`로 지웁니다. 하위 테이블은 `ON DELETE CASCADE`로 같이 지워집니다. 건너뛴 `seen_rss_links` 행(`article_id` NULL)은 기사와 연결이 없으므로 `created_at` 기준으로 따로 지웁니다.
 
 ## 청킹과 임베딩
 

@@ -13,7 +13,9 @@ ALL_FEEDS = "ALL"
 def _print_result(feed_key: str, result: pipeline.RunResult) -> None:
     print(
         f"feed_key={feed_key} 신규={result.total_new} 저장={result.processed} "
-        f"중복(canonical)={result.skipped_duplicate_canonical} 실패={result.failed}"
+        f"중복(canonical)={result.skipped_duplicate_canonical} "
+        f"건너뜀(지역없음)={result.skipped_no_region} 건너뜀(지역매칭실패)={result.skipped_not_match_region} "
+        f"실패={result.failed}"
     )
 
 

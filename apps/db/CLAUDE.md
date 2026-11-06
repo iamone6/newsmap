@@ -64,6 +64,22 @@ uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --r
 5. 시도만 매칭한다.
 6. 별칭 대상이 아직 마스터에 없으면 원래 이름으로 한 번 더 시도한다(마스터 갱신 전 수집 대비).
 
+## 마이그레이션: `migrations/`
+`contracts/schema.sql`은 `BEGIN; … COMMIT;` 한 덩어리로 처음부터 만드는 파일이라 이미 만든 DB에는 다시 실행할 수 없다. 스키마를 바꿀 때는 `schema.sql`을 고치고, 같은 변경을 기존 DB에 적용할 ALTER 를 `migrations/YYYYMMDD_설명.sql`로 따로 둔다.
+- 파일 하나는 `BEGIN; … COMMIT;`으로 묶고 `psql -v ON_ERROR_STOP=1`로 실행한다(중간 실패 시 아무것도 안 바뀜).
+- 적용 기록 테이블은 두지 않는다. 각 DB(로컬·운영)에 적용했는지는 이 절의 적용 이력에 적는다.
+- 로컬(레포 루트): `docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < apps/db/migrations/<파일>`
+- 운영: 서버에는 소스가 없으므로 PC 에서 ssh 로 SQL 을 넘긴다. 먼저 백업하고, 코드가 새 스키마를 요구하면 **코드 배포 전에** 적용한다. rag 수집 시각(00:00)은 피한다.
+  ```cmd
+  ssh -i C:\Users\iamone\.ssh\newsmap_deploy deploy@newsmap.duckdns.org "cd /srv/newsmap && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -Fc -U \"$POSTGRES_USER\" \"$POSTGRES_DB\" -f /tmp/before_<설명>.dump' && echo OK"
+  ssh -i C:\Users\iamone\.ssh\newsmap_deploy deploy@newsmap.duckdns.org "cd /srv/newsmap && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"'" < apps\db\migrations\<파일>
+  ```
+
+| 파일 | 내용 | 로컬 | 운영 |
+|---|---|---|---|
+| `20261106_seen_rss_links_skip_reason.sql` | `seen_rss_links.article_id` NULL 허용, `skip_reason` 추가 | 2026-11-06 | 2026-11-06 |
+| `20261106_delete_articles_without_region.sql` | 지역 코드 없는 기존 기사 삭제(1회성). 연결된 seen 행은 건너뛴 행으로 바꾼 뒤 삭제. 위 파일 다음에 적용 | 2026-11-06 (2,951건 삭제) | – |
+
 ## 검증
 - 현행 시도 목록과 말소 여부: `SELECT code, sido_name, valid_to FROM regions WHERE level = 1 ORDER BY code;`
 - 현행 레벨별 건수: `SELECT level, count(*) FROM regions WHERE valid_to IS NULL GROUP BY level;`

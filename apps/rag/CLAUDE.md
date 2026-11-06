@@ -23,7 +23,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 `docker compose exec`로 돌리는 출력은 컨테이너 메인 프로세스 로그(`docker compose logs`)에도 안 잡히고 어디에도 영속화되지 않으므로, `rag/logging_setup.py`가 콘솔 출력과 별개로 파일 로그 2종을 설정한다. `docker-compose.yml`의 `rag` 서비스에 `./apps/rag/logs:/app/logs` 볼륨을 마운트해 호스트 `apps/rag/logs/`에서도 그대로 보인다(`.gitignore`의 `logs/`에 걸려 커밋 대상 아님).
 
-- `rag.log`: 매체(feed) 하나의 처리가 끝날 때마다 INFO로 `feed_key=... 처리 완료 - 총=N 성공=N 실패=N 중복=N` 한 줄을 남긴다. 일별 로테이션, 30일치 보관.
+- `rag.log`: 매체(feed) 하나의 처리가 끝날 때마다 INFO로 `feed_key=... 처리 완료 - 총=N 성공=N 실패=N 중복=N 지역없음=N 지역매칭실패=N` 한 줄을 남긴다(뒤의 두 값은 지역 코드가 없어 건너뛴 수, 실패가 아님). 일별 로테이션, 30일치 보관.
 - `rag_error.log`: 기사 처리 중 예외가 나면(기존 `log.exception("기사 처리 실패: feed_key=%s rss_link=%s", ...)` 호출을 그대로 재사용) 어느 매체·어느 기사·어떤 예외인지와 트레이스백을 남긴다. 월별 로테이션(1일 00:00 기준, `rag/logging_setup.py`의 `MonthlyRotatingFileHandler` — stdlib `TimedRotatingFileHandler`에 월 단위가 없어 `computeRollover()`만 다시 구현), 12개월치 보관.
 - `rag.log`은 전용 로거(`rag.summary`, `propagate=False`)로만 쌓여 콘솔과 중복 출력되지 않는다. `rag_error.log`는 `rag` 로거에 걸려 있어 기존처럼 콘솔에도 그대로 보인다.
 
@@ -48,12 +48,13 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 1. `feeds.yaml`에서 `feed_key`, `publisher_name`(`direct`만), RSS URL을 읽는다. `google_news_search` 타입은 언론사명을 설정에 넣지 않고 item의 `<source>` 태그에서 읽으며, `<link>`는 구글 내부 리다이렉트 ID라 실제 기사 URL로 디코딩하는 과정이 필요하다. `exclude_sources`에 걸리는 도메인의 기사는 처리하지 않는다.
    - 피드 하나에서 실행 1회에 처리하는 신규 기사 수는 `MAX_ITEMS_PER_BATCH`(기본 50)로 제한한다. 피드가 한 번에 쌓아둔 신규 기사가 이보다 많아도(예: imaeil 이 1000건을 내려준 적 있음) 앞에서부터 50건만 처리하고 나머지는 `seen_rss_links`에 기록되지 않은 채 남아 다음 실행에서 이어 처리된다.
-2. RSS 항목마다 `seen_rss_links (feed_key, rss_link)` 조회.
-   - 있으면 페이지를 열지 않는다. RSS `updated_at`이 다르면 `articles.rss_updated_at`만 갱신하고 끝.
+2. RSS 항목마다 `seen_rss_links (feed_key, rss_link)` 조회(`repository.is_seen`).
+   - 행이 있으면(지역이 없어 건너뛴 행 포함) 페이지를 열지 않는다. decisions 문서는 RSS `updated_at`이 다르면 `articles.rss_updated_at`만 갱신한다고 정했지만 아직 구현돼 있지 않다(`contracts/TODO.md`).
 3. 기사 페이지에서 제목, 부제목, 본문, canonical URL, 썸네일, 이미지 URL+캡션을 추출한다. 제목·부제목·본문·캡션은 HTML 태그와 특수문자를 제거한다. 원본 HTML은 저장하지 않는다.
    - `canonical_url`이 이미 있으면 새 기사를 만들지 않고, 기존 기사 id로 `seen_rss_links`에만 기록하고 끝.
 4. LLM 판단 (모델은 `LLM_MODEL`): 지역(시도/시군구/읍면동, 행정동 코드와 매칭될 이름), 기자명(이메일 제외), 통신사 전재 여부(`wire_agencies` 별칭으로 정규화, 원문은 `wire_source_raw`), 이미지 캡션의 라이선스 출처, 섹션(6개 중 되도록 1개).
-   - 지역 이름 → `regions` 코드 매칭. 실패하면 코드 NULL, 이름은 보관. 지역 무관이면 `article_regions` 행을 만들지 않는다.
+   - 지역 이름 → `regions` 코드 매칭. 일부 단위만 실패하면 그 코드만 NULL, 이름은 보관.
+   - **지역 코드가 하나도 없으면 저장하지 않고 건너뛴다**(2026-11-05 결정, decisions 문서 4·5장). 청킹·임베딩 전에 `seen_rss_links`에 `article_id` NULL + `skip_reason`으로 기록하고 끝낸다(`pipeline._skip_reason_for`, `repository.mark_skipped`). LLM 이 지역 무관으로 판단하면 `'no region'`, 지역명은 있지만 매칭이 모두 실패하면 `'not match region'`. LLM 비용은 이미 든 뒤다.
    - `article_regions`의 코드는 `regions` FK라서, 행정동 마스터(`apps/db/scripts/load_regions.py`)가 수집 전에 먼저 적재돼 있어야 한다. 적재가 안 돼 있으면 모든 지역 매칭이 NULL로 빠진다.
    - 매칭은 현행 코드(`valid_to IS NULL`)만 대상으로 한다(`rag/regions.py`). 시도명은 `region_aliases.yaml`의 별칭으로 현행 이름으로 바꾼다(예: 광주광역시·전라남도 → 전남광주통합특별시). 시군구가 쪼개져 이름이 없어진 경우는 "시도 + 읍면동명"이 현행 읍면동 하나로만 정해질 때 그 읍면동으로 매칭한다.
    - 행정구역 개편 시 마스터 갱신 → `uv run python -m rag.remap_regions [--dry-run]` 재매핑 절차, 매칭 규칙 상세, 현재 마스터 버전은 `apps/db/CLAUDE.md`를 따른다. 매칭 로직이나 `region_aliases.yaml`을 바꾸면 컨테이너 이미지를 다시 빌드한다(`COPY . .`).
@@ -63,8 +64,8 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
    - LLM 판단(`llm_judge.judge_article`)과 임베딩(`embedder.embed_documents`/`embed_query`) 호출은 `rag/retry.py`의 `call_with_retry()`로 감싸져 있어, 실패하면(429 `engine_overloaded` 등) 1초 후 재시도를 최대 3번까지 한다(최초 1회 + 재시도 3회 = 최대 4회 시도). 재시도마다 실제 과금되는 호출이라 매 시도의 토큰 사용량이 `usage.record_llm`에 그대로 집계된다. 4번 다 실패하면 그 예외가 그대로 올라가 기사 1건만 실패 처리된다(기존 "실패는 로그로만" 원칙 그대로).
    - LLM 판단은 `function_calling` 방식이라 모델이 스키마와 다른 모양을 돌려줄 수 있다. `ArticleJudgment.images` 검증 전 정규화(`{"items": [...]}` 풀기, 스키마를 베낀 값은 `[]`)와 `parsed=None` → 재시도 처리가 `rag/llm_judge.py`에 있다. strict `json_schema`를 쓰지 않는 이유는 decisions 문서 6장.
 8. 청크 필터 컬럼: `region_codes`(기사 지역 코드를 `regions.parent_code`로 시도까지 펼친 합집합), `section_ids`, `published_at`, `is_wire`(= `wire_agency_id IS NOT NULL`).
-9. 기사·지역·섹션·이미지·청크·`seen_rss_links`를 **한 트랜잭션**으로 저장. LLM·임베딩 호출은 트랜잭션 밖에서 미리 끝낸다. 실패 시 아무것도 저장하지 않고 다음 cron에 맡긴다(상태/재시도 컬럼 없음).
-10. 수집(RSS fetch)과 정제·청킹·임베딩·적재는 별도 프로세스/cron으로 분리하지 않는다 — `seen_rss_links.article_id`가 `NOT NULL` FK라 기사 행이 만들어지기 전엔 "이미 봤다"는 상태를 영속화할 수 없기 때문이다. 코드 모듈(수집/파싱/LLM 판단/청킹/임베딩/저장)은 기능별로 나누되 실행 단위는 cron 1개로 둔다.
+9. 기사·지역·섹션·이미지·청크·`seen_rss_links`를 **한 트랜잭션**으로 저장(건너뛴 기사는 4번에서 `seen_rss_links` 한 행만 따로 기록). LLM·임베딩 호출은 트랜잭션 밖에서 미리 끝낸다. 실패 시 아무것도 저장하지 않고 다음 cron에 맡긴다(상태/재시도 컬럼 없음).
+10. 수집(RSS fetch)과 정제·청킹·임베딩·적재는 별도 프로세스/cron으로 분리하지 않는다 — 처음에는 `seen_rss_links.article_id`가 `NOT NULL` FK라 기사 행 없이 "이미 봤다"를 남길 수 없었다. 지금은 건너뛴 링크만 `article_id` NULL 을 허용하지만(`skip_reason` 필수), 처리 대기 상태를 따로 두는 것은 아니라서 실행 단위는 그대로다. 코드 모듈(수집/파싱/LLM 판단/청킹/임베딩/저장)은 기능별로 나누되 실행 단위는 cron 1개로 둔다.
 
 ## 알려진 피드 예외
 

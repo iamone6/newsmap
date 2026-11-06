@@ -140,24 +140,31 @@ COMMENT ON COLUMN articles.created_at          IS '수집 시각 (행 생성 시
 COMMENT ON COLUMN articles.updated_at          IS '행 수정 시각';
 
 -- -----------------------------------------------------------------------------
--- 이미 본 RSS 항목 (기사 페이지를 열기 전 중복 필터)
---   canonical_url 중복으로 버린 항목도 기존 기사 id 로 기록해 다시 열지 않는다.
+-- 이미 검사한 RSS 항목 (기사 페이지를 열기 전 중복 필터)
+--   저장한 기사뿐 아니라 canonical_url 중복으로 버린 항목(기존 기사 id)과
+--   지역 코드가 없어 건너뛴 항목(article_id NULL + skip_reason)도 기록해 다시 열지 않는다.
+--   건너뛴 행은 articles 삭제로 같이 지워지지 않으므로 보존 기간 삭제 때 created_at 으로 따로 지운다.
 -- -----------------------------------------------------------------------------
 CREATE TABLE seen_rss_links (
-    feed_key   text   NOT NULL,
-    rss_link   text   NOT NULL,
-    article_id bigint NOT NULL REFERENCES articles (id) ON DELETE CASCADE,
-    created_at timestamptz(0) NOT NULL DEFAULT now(),
-    PRIMARY KEY (feed_key, rss_link)
+    feed_key    text   NOT NULL,
+    rss_link    text   NOT NULL,
+    article_id  bigint REFERENCES articles (id) ON DELETE CASCADE,
+    skip_reason text
+        CHECK (skip_reason IN ('no region', 'not match region')),
+    created_at  timestamptz(0) NOT NULL DEFAULT now(),
+    PRIMARY KEY (feed_key, rss_link),
+    -- 저장(또는 기존 기사 연결)한 항목은 article_id 만, 건너뛴 항목은 skip_reason 만 값을 가진다
+    CONSTRAINT seen_rss_links_article_or_skip CHECK ((article_id IS NULL) = (skip_reason IS NOT NULL))
 );
 
 CREATE INDEX seen_rss_links_article_id_idx ON seen_rss_links (article_id);
 
-COMMENT ON TABLE  seen_rss_links            IS '이미 처리한 RSS 항목. 기사 페이지를 열기 전 중복 필터 (canonical_url 중복으로 버린 항목 포함)';
-COMMENT ON COLUMN seen_rss_links.feed_key   IS 'RSS 피드 식별자';
-COMMENT ON COLUMN seen_rss_links.rss_link   IS 'RSS 항목의 기사 링크';
-COMMENT ON COLUMN seen_rss_links.article_id IS '연결된 기사 ID (canonical_url 이 같은 기존 기사일 수 있음)';
-COMMENT ON COLUMN seen_rss_links.created_at IS '처음 본 시각';
+COMMENT ON TABLE  seen_rss_links             IS '이미 검사한 RSS 항목. 기사 페이지를 열기 전 중복 필터 (canonical_url 중복으로 버린 항목, 지역이 없어 건너뛴 항목 포함)';
+COMMENT ON COLUMN seen_rss_links.feed_key    IS 'RSS 피드 식별자';
+COMMENT ON COLUMN seen_rss_links.rss_link    IS 'RSS 항목의 기사 링크';
+COMMENT ON COLUMN seen_rss_links.article_id  IS '연결된 기사 ID (canonical_url 이 같은 기존 기사일 수 있음). 건너뛴 항목은 NULL';
+COMMENT ON COLUMN seen_rss_links.skip_reason IS '저장하지 않고 건너뛴 사유. no region = LLM 이 지역과 무관하다고 판단, not match region = 지역명은 있으나 시도·시군구·읍면동 코드 매칭이 모두 실패';
+COMMENT ON COLUMN seen_rss_links.created_at  IS '처음 본 시각';
 
 -- -----------------------------------------------------------------------------
 -- 기사-지역 (N:M)

@@ -12,7 +12,7 @@ from pgvector.psycopg import register_vector
 
 def connect(*, host: str, port: int, dbname: str, user: str, password: str) -> psycopg.Connection:
     conn = psycopg.connect(host=host, port=port, dbname=dbname, user=user, password=password)
-    # autocommit 이 아니면 조회성 쿼리(find_seen_article_id 등)가 암묵적 트랜잭션을 열어두고,
+    # autocommit 이 아니면 조회성 쿼리(is_seen 등)가 암묵적 트랜잭션을 열어두고,
     # 그 뒤의 `with conn.transaction():` 들이 최상위가 아니라 SAVEPOINT(중첩)로 취급돼
     # 실제 COMMIT 없이 conn.close() 에서 전부 롤백되는 문제가 있었다(직접 겪은 버그).
     # 매 `with conn.transaction():` 블록이 그 자체로 독립 트랜잭션이 되도록 autocommit 을 켠다.
@@ -21,14 +21,32 @@ def connect(*, host: str, port: int, dbname: str, user: str, password: str) -> p
     return conn
 
 
-def find_seen_article_id(conn: psycopg.Connection, *, feed_key: str, rss_link: str) -> int | None:
+SKIP_NO_REGION = "no region"
+"""seen_rss_links.skip_reason: LLM 이 기사가 특정 지역과 무관하다고 판단해 건너뜀"""
+SKIP_NOT_MATCH_REGION = "not match region"
+"""seen_rss_links.skip_reason: 지역명은 있었지만 시도·시군구·읍면동 코드 매칭이 모두 실패해 건너뜀"""
+
+
+def is_seen(conn: psycopg.Connection, *, feed_key: str, rss_link: str) -> bool:
+    """이미 검사한 RSS 링크인지 확인한다.
+
+    저장한 기사, canonical_url 중복으로 기존 기사에 연결한 링크, 지역이 없어 건너뛴 링크(article_id NULL)
+    모두 "이미 본 것"이다. 건너뛴 링크도 다시 열면 LLM 을 또 부르게 되므로 행이 있는지만 본다.
+
+    Args:
+        conn: DB 커넥션.
+        feed_key: 피드 식별자.
+        rss_link: RSS 항목 링크.
+
+    Returns:
+        seen_rss_links 에 행이 있으면 True.
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT article_id FROM seen_rss_links WHERE feed_key = %s AND rss_link = %s",
+            "SELECT 1 FROM seen_rss_links WHERE feed_key = %s AND rss_link = %s",
             (feed_key, rss_link),
         )
-        row = cur.fetchone()
-        return row[0] if row else None
+        return cur.fetchone() is not None
 
 
 def find_article_id_by_canonical_url(conn: psycopg.Connection, canonical_url: str) -> int | None:
@@ -46,6 +64,26 @@ def mark_seen(conn: psycopg.Connection, *, feed_key: str, rss_link: str, article
                 "INSERT INTO seen_rss_links (feed_key, rss_link, article_id) VALUES (%s, %s, %s)"
                 " ON CONFLICT DO NOTHING",
                 (feed_key, rss_link, article_id),
+            )
+
+
+def mark_skipped(conn: psycopg.Connection, *, feed_key: str, rss_link: str, skip_reason: str) -> None:
+    """지역이 없어 저장하지 않은 기사의 링크를 seen_rss_links 에 기록한다. 자체 트랜잭션으로 즉시 커밋.
+
+    기사 행이 없으므로 article_id 는 NULL 이고, 사유는 skip_reason 에 남긴다(스키마 CHECK 제약).
+
+    Args:
+        conn: DB 커넥션.
+        feed_key: 피드 식별자.
+        rss_link: RSS 항목 링크.
+        skip_reason: SKIP_NO_REGION 또는 SKIP_NOT_MATCH_REGION.
+    """
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO seen_rss_links (feed_key, rss_link, skip_reason) VALUES (%s, %s, %s)"
+                " ON CONFLICT DO NOTHING",
+                (feed_key, rss_link, skip_reason),
             )
 
 
