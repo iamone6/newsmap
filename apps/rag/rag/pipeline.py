@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import calendar
 import concurrent.futures
 import logging
 import threading
-import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import StrEnum
 
 from rag import (
@@ -22,6 +20,7 @@ from rag import (
     page_parser,
     regions,
     repository,
+    rss_time,
     usage,
     wire_agencies,
 )
@@ -31,11 +30,7 @@ from rag.config import FeedConfig, Settings
 log = logging.getLogger(__name__)
 summary_log = logging.getLogger(logging_setup.SUMMARY_LOGGER_NAME)
 
-# imaeil RSS의 <pubDate>는 시간대 표기가 없는 KST 시각인데, feedparser는 시간대가 없으면
-# UTC로 간주해버려서 실제보다 9시간 앞선 시각이 저장된다(2026-10-23 실데이터로 확인:
-# canonical_url의 발행시각 슬러그와 대조해 +9시간 오차를 검증함). 피드 자체를 고칠 수 없으니
-# 이 feed_key 에 대해서만 결과값에서 9시간을 빼는 예외 처리를 둔다.
-FEEDS_WITH_NAIVE_KST_PUBDATE = {"imaeil"}
+# imaeil 처럼 시간대 없이 KST 를 내려주는 피드의 보정은 rss_time.FEEDS_WITH_NAIVE_KST_PUBDATE 에 있다.
 
 
 @dataclass
@@ -50,6 +45,8 @@ class RunResult:
     """LLM 이 지역과 무관하다고 판단해 저장하지 않은 기사 수 (skip_reason = 'no region')"""
     skipped_not_match_region: int = 0
     """지역명은 있었지만 코드 매칭이 모두 실패해 저장하지 않은 기사 수 (skip_reason = 'not match region')"""
+    rss_updated: int = 0
+    """이미 저장한 기사 중 RSS updated 시각이 바뀌어 rss_updated_at 만 갱신한 수"""
 
 
 class ItemOutcome(StrEnum):
@@ -65,20 +62,11 @@ class ItemOutcome(StrEnum):
     """지역 코드 매칭이 모두 실패해 저장하지 않음"""
 
 
-def _struct_to_datetime(struct: time.struct_time | None, *, feed_key: str | None = None) -> datetime | None:
-    if struct is None:
-        return None
-    dt = datetime.fromtimestamp(calendar.timegm(struct), tz=timezone.utc)
-    if feed_key in FEEDS_WITH_NAIVE_KST_PUBDATE:
-        dt -= timedelta(hours=9)
-    return dt
-
-
 def _resolve_published_at(item: CollectedItem) -> tuple[datetime, str]:
-    published = _struct_to_datetime(item.published_parsed, feed_key=item.feed_key)
+    published = rss_time.struct_to_datetime(item.published_parsed, feed_key=item.feed_key)
     if published is not None:
         return published, "rss_published"
-    created = _struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
+    created = rss_time.struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
     if created is not None:
         return created, "rss_created"
     return datetime.now(timezone.utc), "collected"
@@ -191,8 +179,8 @@ def _process_item(conn, settings: Settings, feed: FeedConfig, item: CollectedIte
         return ItemOutcome.DUPLICATE_CANONICAL
 
     published_at, published_at_source = _resolve_published_at(item)
-    rss_created_at = _struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
-    rss_updated_at = _struct_to_datetime(item.updated_parsed, feed_key=item.feed_key)
+    rss_created_at = rss_time.struct_to_datetime(item.created_parsed, feed_key=item.feed_key)
+    rss_updated_at = rss_time.struct_to_datetime(item.updated_parsed, feed_key=item.feed_key)
 
     judgment = llm_judge.judge_article(
         title=parsed.title,
@@ -314,7 +302,8 @@ def run(feed_key: str) -> RunResult:
         password=settings.db_password,
     )
     try:
-        items = collector.fetch_new_items(conn, feed, feeds_file, max_items=settings.max_items_per_batch)
+        fetched = collector.fetch_new_items(conn, feed, feeds_file, max_items=settings.max_items_per_batch)
+        items = fetched.items
         counts = dict.fromkeys(ItemOutcome, 0)
         failed = 0
         for item in items:
@@ -330,9 +319,10 @@ def run(feed_key: str) -> RunResult:
             skipped_duplicate_canonical=counts[ItemOutcome.DUPLICATE_CANONICAL],
             skipped_no_region=counts[ItemOutcome.SKIPPED_NO_REGION],
             skipped_not_match_region=counts[ItemOutcome.SKIPPED_NOT_MATCH_REGION],
+            rss_updated=fetched.rss_updated,
         )
         summary_log.info(
-            "feed_key=%s 처리 완료 - 총=%d 성공=%d 실패=%d 중복=%d 지역없음=%d 지역매칭실패=%d",
+            "feed_key=%s 처리 완료 - 총=%d 성공=%d 실패=%d 중복=%d 지역없음=%d 지역매칭실패=%d 갱신시각변경=%d",
             feed_key,
             result.total_new,
             result.processed,
@@ -340,6 +330,7 @@ def run(feed_key: str) -> RunResult:
             result.skipped_duplicate_canonical,
             result.skipped_no_region,
             result.skipped_not_match_region,
+            result.rss_updated,
         )
         return result
     finally:

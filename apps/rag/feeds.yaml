@@ -40,6 +40,9 @@ exclude_sources: # google_news_search 전용. <source url="..."> 의 호스트 �
   - naver.com
   - daum.net
   - nate.com
+  # 수집 불가 (2026-11-06): 서버가 중간 인증서(GlobalSign GCC R46 OV TLS CA 2025)를 빠뜨리고 보내
+  # Python requests 의 SSL 검증이 매번 실패한다(google_news_seoul). 서버가 고쳐지면 지운다.
+  - tbs.seoul.kr
 
 feeds:
   # ---- 서울 ----

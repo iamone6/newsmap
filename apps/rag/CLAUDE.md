@@ -23,7 +23,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 `docker compose exec`로 돌리는 출력은 컨테이너 메인 프로세스 로그(`docker compose logs`)에도 안 잡히고 어디에도 영속화되지 않으므로, `rag/logging_setup.py`가 콘솔 출력과 별개로 파일 로그 2종을 설정한다. `docker-compose.yml`의 `rag` 서비스에 `./apps/rag/logs:/app/logs` 볼륨을 마운트해 호스트 `apps/rag/logs/`에서도 그대로 보인다(`.gitignore`의 `logs/`에 걸려 커밋 대상 아님).
 
-- `rag.log`: 매체(feed) 하나의 처리가 끝날 때마다 INFO로 `feed_key=... 처리 완료 - 총=N 성공=N 실패=N 중복=N 지역없음=N 지역매칭실패=N` 한 줄을 남긴다(뒤의 두 값은 지역 코드가 없어 건너뛴 수, 실패가 아님). 일별 로테이션, 30일치 보관.
+- `rag.log`: 매체(feed) 하나의 처리가 끝날 때마다 INFO로 `feed_key=... 처리 완료 - 총=N 성공=N 실패=N 중복=N 지역없음=N 지역매칭실패=N 갱신시각변경=N` 한 줄을 남긴다(지역없음·지역매칭실패는 지역 코드가 없어 건너뛴 수로 실패가 아니고, 갱신시각변경은 이미 저장한 기사의 `rss_updated_at`만 바꾼 수). 일별 로테이션, 30일치 보관.
 - `rag_error.log`: 기사 처리 중 예외가 나면(기존 `log.exception("기사 처리 실패: feed_key=%s rss_link=%s", ...)` 호출을 그대로 재사용) 어느 매체·어느 기사·어떤 예외인지와 트레이스백을 남긴다. 월별 로테이션(1일 00:00 기준, `rag/logging_setup.py`의 `MonthlyRotatingFileHandler` — stdlib `TimedRotatingFileHandler`에 월 단위가 없어 `computeRollover()`만 다시 구현), 12개월치 보관.
 - `rag.log`은 전용 로거(`rag.summary`, `propagate=False`)로만 쌓여 콘솔과 중복 출력되지 않는다. `rag_error.log`는 `rag` 로거에 걸려 있어 기존처럼 콘솔에도 그대로 보인다.
 
@@ -48,8 +48,9 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 1. `feeds.yaml`에서 `feed_key`, `publisher_name`(`direct`만), RSS URL을 읽는다. `google_news_search` 타입은 언론사명을 설정에 넣지 않고 item의 `<source>` 태그에서 읽으며, `<link>`는 구글 내부 리다이렉트 ID라 실제 기사 URL로 디코딩하는 과정이 필요하다. `exclude_sources`에 걸리는 도메인의 기사는 처리하지 않는다.
    - 피드 하나에서 실행 1회에 처리하는 신규 기사 수는 `MAX_ITEMS_PER_BATCH`(기본 50)로 제한한다. 피드가 한 번에 쌓아둔 신규 기사가 이보다 많아도(예: imaeil 이 1000건을 내려준 적 있음) 앞에서부터 50건만 처리하고 나머지는 `seen_rss_links`에 기록되지 않은 채 남아 다음 실행에서 이어 처리된다.
-2. RSS 항목마다 `seen_rss_links (feed_key, rss_link)` 조회(`repository.is_seen`).
-   - 행이 있으면(지역이 없어 건너뛴 행 포함) 페이지를 열지 않는다. decisions 문서는 RSS `updated_at`이 다르면 `articles.rss_updated_at`만 갱신한다고 정했지만 아직 구현돼 있지 않다(`contracts/TODO.md`).
+2. RSS 항목마다 `seen_rss_links (feed_key, rss_link)` 조회(`repository.find_seen_link`).
+   - 행이 있으면(지역이 없어 건너뛴 행 포함) 페이지를 열지 않는다.
+   - 저장한 기사이고 RSS `updated` 시각이 `articles.rss_updated_at`과 다르면 그 값만 갱신한다(`collector._refresh_rss_updated_at`, 실행 요약의 `갱신시각변경`). 기사를 처음 저장한 피드의 RSS 값만 따르고(canonical_url 중복으로 다른 피드 기사에 연결된 링크는 갱신 안 함), RSS 에 시각이 없으면 기존 값을 지우지 않는다. feedparser 는 `<updated>`가 없으면 `published_parsed`를 대신 주므로 저장 때와 같은 방식(`entry.get("updated_parsed")`)으로 읽어 비교한다.
 3. 기사 페이지에서 제목, 부제목, 본문, canonical URL, 썸네일, 이미지 URL+캡션을 추출한다. 제목·부제목·본문·캡션은 HTML 태그와 특수문자를 제거한다. 원본 HTML은 저장하지 않는다.
    - `canonical_url`이 이미 있으면 새 기사를 만들지 않고, 기존 기사 id로 `seen_rss_links`에만 기록하고 끝.
 4. LLM 판단 (모델은 `LLM_MODEL`): 지역(시도/시군구/읍면동, 행정동 코드와 매칭될 이름), 기자명(이메일 제외), 통신사 전재 여부(`wire_agencies` 별칭으로 정규화, 원문은 `wire_source_raw`), 이미지 캡션의 라이선스 출처, 섹션(6개 중 되도록 1개).
@@ -69,7 +70,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml �
 
 ## 알려진 피드 예외
 
-- **imaeil(매일신문)**: RSS `<pubDate>`가 시간대 표기 없는 KST 시각(`2026-10-23 19:15:48` 형식)으로 내려온다. 다른 피드는 RFC822(`+0900` 포함)라 문제없지만, 이 피드는 시간대가 없어 `feedparser`가 UTC로 간주해버려 실제보다 9시간 앞선 시각으로 파싱된다(`published_parsed`/`created_parsed`/`updated_parsed` 전부 영향받음). `rag/pipeline.py`의 `FEEDS_WITH_NAIVE_KST_PUBDATE`에 `feed_key`를 등록해, 해당 피드로 변환한 datetime에서 9시간을 빼는 예외 처리로 보정한다. 다른 피드에서 같은 증상이 발견되면 같은 집합에 추가한다.
+- **imaeil(매일신문)**: RSS `<pubDate>`가 시간대 표기 없는 KST 시각(`2026-10-23 19:15:48` 형식)으로 내려온다. 다른 피드는 RFC822(`+0900` 포함)라 문제없지만, 이 피드는 시간대가 없어 `feedparser`가 UTC로 간주해버려 실제보다 9시간 앞선 시각으로 파싱된다(`published_parsed`/`created_parsed`/`updated_parsed` 전부 영향받음). `rag/rss_time.py`의 `FEEDS_WITH_NAIVE_KST_PUBDATE`에 `feed_key`를 등록해, 해당 피드로 변환한 datetime에서 9시간을 빼는 예외 처리로 보정한다. 다른 피드에서 같은 증상이 발견되면 같은 집합에 추가한다.
   - 2026-10-23에 이 버그로 이미 잘못 저장된 imaeil 999건(`articles.published_at`/`rss_created_at`/`rss_updated_at`, `article_chunks.published_at`)은 전부 9시간을 빼는 1회성 SQL로 보정했다(코드 수정 전 데이터).
 - **서로 다른 두 피드가 같은 canonical_url을 동시에 저장하려는 경우**: `--feed-key ALL`이 피드를 병렬로 처리하므로(위 참고), 두 피드가 정확히 같은 순간에 똑같은 `canonical_url`을 처음 저장하려 하면 하나는 `articles_canonical_url_key` 유니크 제약 위반으로 그 기사 처리만 실패한다. `seen_rss_links`에 기록되지 않으므로 다음 실행에서 재시도되고, 그때는 이미 기사가 있으니 조회만 하고 끝난다 — "실패는 로그로만 남기고 다음 cron에 맡긴다" 원칙대로 자연히 치유된다. 코드로 막지 않고 문서화만 해둔다.
 

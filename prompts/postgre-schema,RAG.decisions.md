@@ -97,6 +97,7 @@
 ## 5. 중복 수집 방지
 `seen_rss_links`는 **검사를 마친 RSS 링크**의 기록이다. 저장한 기사뿐 아니라 건너뛴 기사도 기록해, 같은 링크를 다시 열거나 LLM 을 다시 부르지 않게 한다.
 1. `seen_rss_links (feed_key, rss_link)`에 행이 있으면 기사 페이지를 열지 않는다(`article_id` 가 NULL 인 건너뛴 행 포함). 저장된 기사이고 `updated_at`만 달라졌으면 `rss_updated_at`만 갱신한다.
+   - (2026-11-06 구현하며 정함) 기사를 처음 저장한 피드(`articles.feed_key`)의 RSS 값만 따른다. canonical_url 중복으로 다른 피드의 기사에 연결된 링크로는 갱신하지 않는다(피드마다 값이 달라 실행마다 왔다 갔다 하지 않게). RSS 에 시각이 없으면 기존 값을 지우지 않는다.
 2. 페이지를 파싱한 뒤 `canonical_url`이 이미 있으면 새 기사를 만들지 않고, 기존 기사 id로 `seen_rss_links`에만 기록한다.
 3. (2026-11-05 추가) 지역 코드가 하나도 없어 건너뛴 기사는 `article_id = NULL`, `skip_reason`(`'no region'` 또는 `'not match region'`)으로 기록한다. `article_id`와 `skip_reason`은 둘 중 하나만 값을 가진다.
    - 기록하지 않으면 그 링크가 피드에서 빠질 때까지 실행마다 다시 파싱·LLM 판단을 하고, 피드당 처리 상한(`MAX_ITEMS_PER_BATCH`)을 차지해 진짜 신규 기사를 밀어낸다.

@@ -182,7 +182,7 @@ def test_collector_does_not_pick_skipped_link_again(monkeypatch, db_conn, cleanu
     skipped_link = entries[0]["link"]
     repository.mark_skipped(db_conn, feed_key=TEST_FEED_KEY, rss_link=skipped_link, skip_reason=repository.SKIP_NO_REGION)
 
-    items = collector.fetch_new_items(db_conn, feed, FeedsFile(feeds={}, exclude_sources=[]))
+    items = collector.fetch_new_items(db_conn, feed, FeedsFile(feeds={}, exclude_sources=[])).items
 
     assert all(item.rss_link != skipped_link for item in items)
     assert len(items) == len(entries) - 1

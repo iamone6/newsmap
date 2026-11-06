@@ -12,7 +12,7 @@ from pgvector.psycopg import register_vector
 
 def connect(*, host: str, port: int, dbname: str, user: str, password: str) -> psycopg.Connection:
     conn = psycopg.connect(host=host, port=port, dbname=dbname, user=user, password=password)
-    # autocommit 이 아니면 조회성 쿼리(is_seen 등)가 암묵적 트랜잭션을 열어두고,
+    # autocommit 이 아니면 조회성 쿼리(find_seen_link 등)가 암묵적 트랜잭션을 열어두고,
     # 그 뒤의 `with conn.transaction():` 들이 최상위가 아니라 SAVEPOINT(중첩)로 취급돼
     # 실제 COMMIT 없이 conn.close() 에서 전부 롤백되는 문제가 있었다(직접 겪은 버그).
     # 매 `with conn.transaction():` 블록이 그 자체로 독립 트랜잭션이 되도록 autocommit 을 켠다.
@@ -27,11 +27,23 @@ SKIP_NOT_MATCH_REGION = "not match region"
 """seen_rss_links.skip_reason: 지역명은 있었지만 시도·시군구·읍면동 코드 매칭이 모두 실패해 건너뜀"""
 
 
-def is_seen(conn: psycopg.Connection, *, feed_key: str, rss_link: str) -> bool:
-    """이미 검사한 RSS 링크인지 확인한다.
+@dataclass(frozen=True)
+class SeenLink:
+    """이미 검사한 RSS 링크 한 건과, 연결된 기사의 RSS 갱신 시각 비교에 필요한 값"""
+
+    article_id: int | None
+    """연결된 기사 ID. 지역이 없어 건너뛴 링크는 None"""
+    article_feed_key: str | None
+    """연결된 기사를 처음 저장한 피드. canonical_url 중복으로 다른 피드의 기사에 연결된 링크면 이 링크의 feed_key 와 다르다"""
+    rss_updated_at: datetime | None
+    """연결된 기사의 articles.rss_updated_at"""
+
+
+def find_seen_link(conn: psycopg.Connection, *, feed_key: str, rss_link: str) -> SeenLink | None:
+    """이미 검사한 RSS 링크인지 확인하고, 그렇다면 연결된 기사 정보를 돌려준다.
 
     저장한 기사, canonical_url 중복으로 기존 기사에 연결한 링크, 지역이 없어 건너뛴 링크(article_id NULL)
-    모두 "이미 본 것"이다. 건너뛴 링크도 다시 열면 LLM 을 또 부르게 되므로 행이 있는지만 본다.
+    모두 "이미 본 것"이다. 건너뛴 링크도 다시 열면 LLM 을 또 부르게 되므로 행이 있으면 본 것으로 친다.
 
     Args:
         conn: DB 커넥션.
@@ -39,14 +51,37 @@ def is_seen(conn: psycopg.Connection, *, feed_key: str, rss_link: str) -> bool:
         rss_link: RSS 항목 링크.
 
     Returns:
-        seen_rss_links 에 행이 있으면 True.
+        seen_rss_links 에 행이 있으면 SeenLink, 없으면 None.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM seen_rss_links WHERE feed_key = %s AND rss_link = %s",
+            """
+            SELECT s.article_id, a.feed_key, a.rss_updated_at
+            FROM seen_rss_links s
+            LEFT JOIN articles a ON a.id = s.article_id
+            WHERE s.feed_key = %s AND s.rss_link = %s
+            """,
             (feed_key, rss_link),
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return SeenLink(article_id=row[0], article_feed_key=row[1], rss_updated_at=row[2])
+
+
+def update_rss_updated_at(conn: psycopg.Connection, *, article_id: int, rss_updated_at: datetime) -> None:
+    """이미 저장한 기사의 RSS 갱신 시각만 바꾼다. 기사를 다시 파싱하지는 않는다(decisions 문서 5장).
+
+    Args:
+        conn: DB 커넥션 (autocommit).
+        article_id: 기사 ID.
+        rss_updated_at: RSS 항목의 새 updated 시각.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE articles SET rss_updated_at = %s, updated_at = now() WHERE id = %s",
+            (rss_updated_at, article_id),
+        )
 
 
 def find_article_id_by_canonical_url(conn: psycopg.Connection, canonical_url: str) -> int | None:
