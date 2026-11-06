@@ -195,19 +195,23 @@ prod `.env` 는 `.env.example` 을 참고해 서버에서 직접 만들고 `chmo
 
 로그인 계정(`users`, `personal_access_tokens`)은 데이터를 빼고 옮깁니다(로컬 테스트 계정이 운영에 들어가지 않게).
 
+서버에는 첫 배포 전까지 compose 파일·이미지가 없으므로, **첫 배포를 먼저 하고**(DB 는 빈 상태로 뜬다) 빈 DB 에 복원합니다. db 이미지에는 스키마 초기화 스크립트가 없고 be 도 기동 때 마이그레이션을 하지 않아 빈 DB 에 그대로 복원할 수 있습니다.
+
 ```bash
-# 로컬
-docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" --exclude-table-data=users --exclude-table-data=personal_access_tokens "$POSTGRES_DB"' > newsmap.dump
+# 로컬: 컨테이너 안에서 파일로 덤프한 뒤 docker compose cp 로 꺼낸다.
+# (Windows 에서 `... > newsmap.dump` 처럼 파이프로 받으면 바이너리가 깨진다: 175MB → 167MB, pg_restore 실패)
+docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" --exclude-table-data=users --exclude-table-data=personal_access_tokens -f /tmp/newsmap.dump "$POSTGRES_DB"'
+docker compose cp db:/tmp/newsmap.dump newsmap.dump
+docker compose exec -T db rm /tmp/newsmap.dump
 scp newsmap.dump deploy@<서버>:/srv/newsmap/
 
-# 서버 (/srv/newsmap). db 만 먼저 띄우고 복원한 뒤 나머지를 올린다
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d db
+# 서버 (/srv/newsmap). 첫 배포가 끝나 컨테이너가 떠 있는 상태에서. rag cron 은 복원 뒤에 등록한다
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db sh -c 'pg_restore --no-owner --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < newsmap.dump
-deploy/deploy.sh
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T be php artisan cache:clear   # 빈 DB 때 캐시된 통계를 비운다
 rm newsmap.dump
 ```
 
-덤프에 스키마·확장(vector, pg_search)·인덱스가 들어 있으므로 `contracts/schema.sql` 은 따로 적용하지 않습니다.
+덤프에 스키마·확장(vector, pg_search)·인덱스가 들어 있으므로 `contracts/schema.sql` 은 따로 적용하지 않습니다. 복원 전에 로컬의 새 DB(`CREATE DATABASE …`)에 한 번 `pg_restore` 해 보면 덤프가 정상인지 미리 확인할 수 있습니다.
 
 ### 주기 작업 (cron)
 

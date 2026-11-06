@@ -78,7 +78,7 @@ uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --r
 | 파일 | 내용 | 로컬 | 운영 |
 |---|---|---|---|
 | `20261106_seen_rss_links_skip_reason.sql` | `seen_rss_links.article_id` NULL 허용, `skip_reason` 추가 | 2026-11-06 | 2026-11-06 |
-| `20261106_delete_articles_without_region.sql` | 지역 코드 없는 기존 기사 삭제(1회성). 연결된 seen 행은 건너뛴 행으로 바꾼 뒤 삭제. 위 파일 다음에 적용 | 2026-11-06 (2,951건 삭제) | – |
+| `20261106_delete_articles_without_region.sql` | 지역 코드 없는 기존 기사 삭제(1회성). 연결된 seen 행은 건너뛴 행으로 바꾼 뒤 삭제. 위 파일 다음에 적용 | 2026-11-06 (2,951건 삭제) | 2026-11-06 (3,298건 삭제, seen 3,300행 전환) |
 
 ## 검증
 - 현행 시도 목록과 말소 여부: `SELECT code, sido_name, valid_to FROM regions WHERE level = 1 ORDER BY code;`
