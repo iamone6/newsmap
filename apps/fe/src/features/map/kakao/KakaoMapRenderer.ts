@@ -43,6 +43,24 @@ const KAKAO_LEVEL_RANGE: Record<MapLevel, [number, number]> = {
   emd: [KAKAO_MIN_LEVEL, 7],
 };
 
+/** 지역으로 이동할 때 마지막 확대·축소(최대 2레벨) 애니메이션 시간(ms) */
+const FOCUS_ZOOM_DURATION = 300;
+/** 확대·축소 애니메이션이 시작(zoom_changed)될 때까지 기다리는 최대 시간(ms). 타일 로딩에 따라 0.3~1초 걸린다 */
+const ZOOM_START_TIMEOUT = 1500;
+/** 카카오 setLevel 애니메이션은 레벨 차이가 2 이하일 때만 동작한다 (SDK 문서) */
+const MAX_ANIMATED_LEVEL_STEP = 2;
+/**
+ * panBy 뒤 idle 을 기다리는 최대 시간(ms). 이동 애니메이션은 약 0.3~0.4초이고 idle 도 그때 온다.
+ * idle 은 타일을 다 받을 때까지 늦게 오기도 해서(스카이뷰는 1초 넘게) 그 이상은 기다리지 않는다.
+ */
+const PAN_WAIT_TIMEOUT = 500;
+/** 확대·축소 애니메이션이 끝난 뒤 단계 전환까지 두는 여유(ms) */
+const ZOOM_SETTLE = 60;
+/** 이 폭 이하는 모바일로 보고 오른쪽 목록 패널 여백을 두지 않는다 (fe CLAUDE.md 검증 기준 768px) */
+const MOBILE_MAX_WIDTH = 768;
+/** 지역을 화면에 맞출 때 남기는 여백(px). PC 는 오른쪽 목록 패널(약 440px)을 피한다 */
+const FOCUS_PADDING = { top: 40, bottom: 40, left: 40, right: 440, mobileRight: 40 };
+
 /** 단계별 경계선 굵기 */
 const LINE_WIDTH: Record<MapLevel, number> = { sido: 1.4, sigungu: 0.8, emd: 0.8 };
 const SELECTED_LINE_WIDTH: Record<MapLevel, number> = { sido: 3.1, sigungu: 2.2, emd: 1.6 };
@@ -121,6 +139,12 @@ export class KakaoMapRenderer {
   private destroyed = false;
   /** handleIdle 호출 번호. 경계를 불러오는 동안 더 새로운 idle 이 오면 오래된 결과를 버린다 */
   private idleSequence = 0;
+  /** focusOn 호출 번호. 이동 중에 다른 지역을 고르면 이전 이동은 그 자리에서 멈춘다 */
+  private focusSequence = 0;
+  /** 지역으로 이동하는 애니메이션 중이면 true. 중간 레벨에서 단계 전환(경계 교체·선택 해제)을 하지 않는다 */
+  private isFocusing = false;
+  /** 진행 중인 이동. 새 이동은 이게 지금 단계를 마치고 멈출 때까지 기다린다(움직이는 중에 좌표를 재면 틀어진다) */
+  private currentFocus: Promise<void> = Promise.resolve();
 
   /**
    * @param container 지도를 넣을 DOM 요소
@@ -225,23 +249,19 @@ export class KakaoMapRenderer {
   }
 
   /**
-   * 지역이 보이도록 이동·확대한다. 오른쪽 목록 패널(440px)을 피해서 맞춘다.
+   * 지역이 보이도록 부드럽게 이동·확대한다. PC 는 오른쪽 목록 패널(440px)을 피해서 맞춘다.
    * 확대 정도는 그 지역 단계의 레벨 범위 안으로 맞춘다. 섬·바다는 이동하지 않는다.
+   * 실제 애니메이션은 animateFocus 가 한다(기다리는 동안 다른 지역을 고르면 이전 이동은 멈춘다).
    * @param region 이동할 지역
    */
   focusOn(region: MapFeature | IslandMarker): void {
     if (!this.map || !("properties" in region) || region.kind !== "admin") return;
-    const maps = this.maps;
-    const [[west, south], [east, north]] = region.bounds;
-    const bounds = new maps.LatLngBounds(new maps.LatLng(south, west), new maps.LatLng(north, east));
-    // setBounds(영역, 위, 오른쪽, 아래, 왼쪽 여백)
-    this.map.setBounds(bounds, 40, 440, 40, 40);
-
-    const [nearest, farthest] = KAKAO_LEVEL_RANGE[region.regionLevel as MapLevel];
-    const current = this.map.getLevel();
-    if (current < nearest || current > farthest) {
-      this.map.setLevel(Math.min(farthest, Math.max(nearest, current)));
-    }
+    const sequence = ++this.focusSequence;
+    // 앞의 이동은 sequence 가 바뀐 걸 보고 지금 단계(애니메이션 한 번)만 마치고 멈춘다. 그 뒤에 시작한다
+    const previous = this.currentFocus;
+    this.currentFocus = previous
+      .then(() => this.animateFocus(region, sequence))
+      .catch((error) => console.error("지역으로 이동하지 못했습니다", error)); // 실패해도 다음 이동은 막지 않는다
   }
 
   /** 지도와 이벤트를 모두 정리한다. 컴포넌트가 사라질 때 부른다 */
@@ -257,6 +277,142 @@ export class KakaoMapRenderer {
   }
 
   // ── 내부 동작 ─────────────────────────────────────────────────────
+
+  /**
+   * 지역으로 부드럽게 이동한다. setBounds 는 애니메이션이 없어 직접 단계를 밟는다.
+   * 1) 지금 레벨에서 지역 중심이 화면 기준점(패널을 뺀 가운데)에 오도록 panBy 로 미끄러지듯 옮긴다
+   * 2) 목표 레벨로 확대·축소한다. 기준점(anchor)을 지역 중심으로 두어 지역이 화면 같은 자리에 머문다.
+   *    카카오 애니메이션은 레벨 차이 2 이하만 되고, 새 레벨 타일이 준비될 때까지 시작이 늦어져
+   *    (0.3~1초) 그 사이 다음 setLevel 은 무시된다. 그래서 2레벨씩 여러 번 하지 않고, 목표 2레벨 앞까지는
+   *    한 번에 맞춘 뒤 마지막 2레벨만 애니메이션한다
+   * 3) 다 끝나면 단계 전환(handleIdle)을 한 번만 한다. 중간 레벨에서 전환하면 읍면동을 고를 때
+   *    중간의 시군구 레벨에서 선택이 풀린다
+   * @param region 이동할 지역 (행정구역)
+   * @param sequence focusOn 호출 번호. 더 새로운 호출이 오면 여기서 멈춘다
+   */
+  private async animateFocus(region: MapFeature, sequence: number): Promise<void> {
+    const maps = this.maps;
+    const [[west, south], [east, north]] = region.bounds;
+    const center = new maps.LatLng((south + north) / 2, (west + east) / 2);
+    const isStale = () => this.destroyed || !this.map || sequence !== this.focusSequence;
+    // 기다리는 사이 더 새로운 이동이 들어왔으면 시작하지 않는다
+    if (isStale()) return;
+
+    this.isFocusing = true;
+    try {
+      // 1) 이동
+      const anchor = this.focusAnchorPoint();
+      const point = this.map.getProjection().containerPointFromCoords(center);
+      const moveX = point.x - anchor.x;
+      const moveY = point.y - anchor.y;
+      if (Math.abs(moveX) > 1 || Math.abs(moveY) > 1) {
+        await this.runAndWaitForIdle(() => this.map.panBy(moveX, moveY), PAN_WAIT_TIMEOUT);
+        if (isStale()) return;
+      }
+
+      // 2) 확대·축소. 레벨 차이가 크면 목표 2레벨 앞까지는 애니메이션 없이 맞추고, 마지막 2레벨만 애니메이션한다
+      const targetLevel = this.fitLevelFor(region);
+      const current = this.map.getLevel();
+      if (Math.abs(targetLevel - current) > MAX_ANIMATED_LEVEL_STEP) {
+        const direction = targetLevel > current ? 1 : -1;
+        this.map.setLevel(targetLevel - direction * MAX_ANIMATED_LEVEL_STEP, { anchor: center });
+      }
+      if (this.map.getLevel() !== targetLevel) {
+        // 애니메이션은 새 레벨 타일이 준비된 뒤 시작하므로(zoom_changed) 그때부터 애니메이션 길이만큼 기다린다
+        await this.runAndWaitForEvent(
+          "zoom_changed",
+          () => this.map.setLevel(targetLevel, { animate: { duration: FOCUS_ZOOM_DURATION }, anchor: center }),
+          ZOOM_START_TIMEOUT,
+        );
+        if (isStale()) return;
+        await new Promise((resolve) => setTimeout(resolve, FOCUS_ZOOM_DURATION + ZOOM_SETTLE));
+        if (isStale()) return;
+      }
+    } finally {
+      // 3) 이 이동이 마지막 호출일 때만 단계 전환 (더 새로운 이동이 있으면 그쪽이 끝낸다)
+      if (sequence === this.focusSequence && !this.destroyed && this.map) {
+        this.isFocusing = false;
+        void this.handleIdle();
+      }
+    }
+  }
+
+  /**
+   * 지역을 맞출 화면 기준점(px). 여백을 뺀 영역의 가운데다.
+   * @returns 지도 요소 왼쪽 위 기준 좌표
+   */
+  private focusAnchorPoint(): { x: number; y: number } {
+    const { width, height } = this.container.getBoundingClientRect();
+    const right = width <= MOBILE_MAX_WIDTH ? FOCUS_PADDING.mobileRight : FOCUS_PADDING.right;
+    return {
+      x: FOCUS_PADDING.left + (width - FOCUS_PADDING.left - right) / 2,
+      y: FOCUS_PADDING.top + (height - FOCUS_PADDING.top - FOCUS_PADDING.bottom) / 2,
+    };
+  }
+
+  /**
+   * 지역이 여백 안에 꼭 맞게 들어가는 카카오 레벨을 계산한다 (setBounds 와 같은 결과를 애니메이션 없이 미리 구함).
+   * 1) 지금 레벨에서 지역 경계 상자가 화면에서 몇 px 인지 잰다
+   * 2) 카카오 레벨은 1 오를 때마다 화면 크기가 절반이 되므로 log2(필요 배율)만큼 레벨을 옮긴다
+   * 3) 그 지역 단계의 레벨 범위(KAKAO_LEVEL_RANGE) 안으로 맞춘다
+   * @param region 지역
+   * @returns 목표 카카오 레벨
+   */
+  private fitLevelFor(region: MapFeature): number {
+    const maps = this.maps;
+    const [[west, south], [east, north]] = region.bounds;
+    const projection = this.map.getProjection();
+    const topLeft = projection.containerPointFromCoords(new maps.LatLng(north, west));
+    const bottomRight = projection.containerPointFromCoords(new maps.LatLng(south, east));
+    const boxWidth = Math.max(1, Math.abs(bottomRight.x - topLeft.x));
+    const boxHeight = Math.max(1, Math.abs(bottomRight.y - topLeft.y));
+
+    const { width, height } = this.container.getBoundingClientRect();
+    const right = width <= MOBILE_MAX_WIDTH ? FOCUS_PADDING.mobileRight : FOCUS_PADDING.right;
+    const availableWidth = Math.max(1, width - FOCUS_PADDING.left - right);
+    const availableHeight = Math.max(1, height - FOCUS_PADDING.top - FOCUS_PADDING.bottom);
+    const neededScale = Math.max(boxWidth / availableWidth, boxHeight / availableHeight);
+    const fittedLevel = this.map.getLevel() + Math.ceil(Math.log2(neededScale));
+
+    const [nearest, farthest] = KAKAO_LEVEL_RANGE[region.regionLevel as MapLevel];
+    return Math.min(farthest, Math.max(nearest, fittedLevel));
+  }
+
+  /**
+   * 지도를 움직이는 함수를 실행하고, 움직임이 끝난 idle 까지 기다린다.
+   * 카카오는 애니메이션이 없으면 idle 을 동기적으로 부르기도 해서, 리스너를 먼저 붙인 뒤 실행한다.
+   * idle 이 늦거나 오지 않으면(움직일 거리가 없음, 타일 로딩 중 등) timeout 뒤에 그냥 넘어간다.
+   * @param action 지도를 움직이는 함수 (panBy …)
+   * @param timeout 최대로 기다릴 시간(ms)
+   * @returns 움직임이 끝나면 끝나는 Promise
+   */
+  private runAndWaitForIdle(action: () => void, timeout: number): Promise<void> {
+    return this.runAndWaitForEvent("idle", action, timeout);
+  }
+
+  /**
+   * 지도를 움직이는 함수를 실행하고, 지도 이벤트가 한 번 올 때까지 기다린다.
+   * 이벤트가 동기적으로 오는 경우도 있어 리스너를 먼저 붙인 뒤 실행한다. 오지 않으면 timeout 뒤에 넘어간다.
+   * @param eventType 기다릴 카카오 지도 이벤트 (idle, zoom_changed …)
+   * @param action 지도를 움직이는 함수
+   * @param timeout 최대로 기다릴 시간(ms)
+   * @returns 이벤트가 오거나 timeout 이 지나면 끝나는 Promise
+   */
+  private runAndWaitForEvent(eventType: string, action: () => void, timeout: number): Promise<void> {
+    return new Promise((resolve) => {
+      const maps = this.maps;
+      const map = this.map;
+      // finish 는 아래 action() 이후에만 불리므로(idle 도 그때 온다) 그 시점엔 timer 가 이미 있다
+      const finish = () => {
+        clearTimeout(timer);
+        maps.event.removeListener(map, eventType, finish);
+        resolve();
+      };
+      maps.event.addListener(map, eventType, finish);
+      const timer = setTimeout(finish, timeout);
+      action();
+    });
+  }
 
   /**
    * 지도에 이벤트를 붙이고, 나중에 떼어 낼 수 있게 기록해 둔다.
@@ -277,6 +433,8 @@ export class KakaoMapRenderer {
    * 경계를 기다린 뒤 더 새로운 호출이 있었으면 이 호출의 결과는 버린다.
    */
   private async handleIdle(): Promise<void> {
+    // 지역으로 이동하는 애니메이션 중간의 idle 은 무시한다. 이동이 끝나면 animateFocus 가 다시 부른다
+    if (this.isFocusing) return;
     const sequence = ++this.idleSequence;
     const wantedLevel = levelForKakao(this.map.getLevel());
     if (wantedLevel !== this.level) {

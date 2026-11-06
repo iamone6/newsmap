@@ -11,8 +11,6 @@
     - [x] 5단계 첫 배포 `sha-9871b5a` (2026-11-04): 지문은 ECDSA 로 교체, 로컬 DB 복원(기사 14,278·청크 34,241·행정동 9,612, users 제외), API·하이브리드 검색 응답 확인
     - [x] 서버 crontab 등록 (2026-11-04): rag 매일 00:00 하루 1회, 보존 기간 삭제 04:10
     - [x] 첫 cron 실행 확인 (2026-11-05 00:00~00:07): 34개 피드, 신규 247건, 실패 1, 예상 비용 $0.042
-- [ ] rag 하루 1회 수집량: 첫 실행에서 `imaeil`·`ulsanpress` 가 `MAX_ITEMS_PER_BATCH`(50) 상한에 걸렸다(`ksilbo` 44). 며칠 지켜보고 밀리면 상한을 올리거나 해당 피드만 더 자주 돌린다
-- [ ] fe: 지역을 클릭하면 그 지역으로 부드럽게 이동(줌·이동 애니메이션). 지금은 카카오 `focusOn()` 의 `setBounds()`·`setLevel()` 로 바로 바뀐다. SVG 엔진(d3 zoom transition)과 동작을 맞춘다
 - [ ] fe: 모바일 화면에서 기사 목록 패널을 띄웠다 닫으면 간헐적으로 지도가 비정상 출력된다. 재현 조건(엔진·브라우저·패널 열고 닫는 횟수)부터 확인한다(패널로 지도 크기가 바뀐 뒤 카카오 `relayout()` 이나 SVG 크기 재계산이 빠지는지 의심)
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`
