@@ -17,9 +17,11 @@ SHELL ["/bin/bash", "-o", "pipefail", "-e", "-c"]
 # uv 바이너리만 복사한다. Python 설치·의존성 관리는 전부 uv 가 맡는다 (apt python 안 씀).
 COPY --from=uv /uv /uvx /usr/local/bin/
 
-# uv/파이썬이 HTTPS 로 받을 때 필요한 루트 인증서.
+# ca-certificates: uv/파이썬이 HTTPS 로 받을 때 필요한 루트 인증서.
+# tzdata: 시간대 데이터. 없으면 TZ=Asia/Seoul 이 적용되지 않아 date·로그 시각이 UTC 로 찍힌다.
+#         설치 중 시간대를 묻지 않도록 DEBIAN_FRONTEND=noninteractive 로 설치한다(TZ 환경변수로 정한다).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
