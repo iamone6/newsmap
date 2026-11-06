@@ -18,6 +18,11 @@
  *   일반구 판정은 시군구 이름이 "○○시○○구" 모양인지로 한다. 코드 끝자리로는 안 된다
  *   (광진구 11215·제물포구 28125·증평군 43745 처럼 끝자리가 0이 아닌 일반 자치구·군이 있다).
  *
+ * 바다(서해·남해·동해)는 행정경계가 없는 개념적 영역이라 scripts/sea-areas.json 에 대략적인 꼭짓점으로 정의한다.
+ *   그대로 쓰면 해안선과 겹쳐, 반투명한 육지 색 사이로 바다 색이 비친다(해안 시군구 안의 비스듬한 띠).
+ *   그래서 읍면동 경계(지도에 그리는 것 중 가장 정밀)를 바다에서 잘라낸(erase) 모양을
+ *   src/features/map/seaAreas.json 으로 저장하고, 지도는 그걸 그린다. 섬은 바다의 구멍이 된다.
+ *
  * 실행: npm run build:geo
  * 원본 파일은 .cache/ 에 한 번만 내려받아 두고 다시 쓴다.
  */
@@ -38,6 +43,11 @@ const sourceFile = path.join(cacheDir, `HangJeongDong_${SOURCE_VERSION}.geojson`
 const citySourceFile = path.join(cacheDir, `HangJeongDong_${SOURCE_VERSION}.cities.geojson`);
 /** 일반구 코드(5자리) → 시 코드(5자리) 표. fe 가 구 코드로 저장된 기사의 지역을 시로 찾을 때 쓴다 */
 const districtTableFile = path.join(projectRoot, "src", "features", "map", "districtToCity.json");
+
+/** 바다 정의(대략적인 꼭짓점·라벨 위치)와, 육지를 잘라낸 결과 */
+const seaDefinitionFile = path.join(projectRoot, "scripts", "sea-areas.json");
+const seaInputFile = path.join(cacheDir, "sea-areas.input.geojson");
+const seaOutputFile = path.join(projectRoot, "src", "features", "map", "seaAreas.json");
 
 /** "수원시영통구" → ["수원시", "영통구"]. 일반구만 이 모양이다 (일반 자치구는 "광진구"처럼 시 이름이 없다) */
 const GENERAL_DISTRICT_NAME = /^(.+시)(.+구)$/;
@@ -109,6 +119,29 @@ function mergeGeneralDistricts() {
 }
 
 /**
+ * 바다 다각형에서 육지(읍면동 경계)를 잘라내 저장한다.
+ * 1) sea-areas.json 의 꼭짓점으로 GeoJSON 을 만든다 (라벨 위치는 속성으로 넘긴다)
+ * 2) mapshaper -erase 로 읍면동 TopoJSON 과 겹치는 부분을 뺀다. 지도에 그리는 육지와 같은 선이라 틈·겹침이 없다
+ * 3) 좌표를 소수 넷째 자리(약 10m)로 줄여 저장한다
+ * @param {string} landFile 잘라낼 육지 TopoJSON (emd.topo.json)
+ * @returns {Promise<void>}
+ */
+async function buildSeaAreas(landFile) {
+  const definitions = JSON.parse(readFileSync(seaDefinitionFile, "utf8"));
+  const input = {
+    type: "FeatureCollection",
+    features: definitions.map((sea) => ({
+      type: "Feature",
+      properties: { code: sea.code, name: sea.name, label_lng: sea.labelAt[0], label_lat: sea.labelAt[1] },
+      geometry: { type: "Polygon", coordinates: [sea.ring] },
+    })),
+  };
+  writeFileSync(seaInputFile, JSON.stringify(input));
+  console.log("만드는 중: seaAreas.json (바다 - 육지)");
+  await runMapshaper(`-i "${seaInputFile}" -erase "${landFile}" -o "${seaOutputFile}" format=geojson precision=0.0001`);
+}
+
+/**
  * mapshaper 명령 한 줄을 실행한다.
  * 경로에 공백이 있어도 되도록 따옴표로 감싸서 넘긴다.
  * @param {string} commands mapshaper CLI 와 같은 형식의 명령 문자열
@@ -165,6 +198,7 @@ async function buildAll() {
         `-o "${output}" format=topojson quantization=100000`,
     );
   }
+  await buildSeaAreas(path.join(outputDir, "emd.topo.json"));
   console.log("완료");
 }
 

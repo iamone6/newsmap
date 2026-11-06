@@ -9,9 +9,10 @@
 import { geoArea, geoBounds, geoCentroid } from "d3";
 import { feature as topoFeature } from "topojson-client";
 import type { GeometryCollection, Topology } from "topojson-specification";
-import type { Polygon } from "geojson";
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import type { RegionRef } from "@/lib/api/types";
 import districtToCity from "./districtToCity.json";
+import seaAreas from "./seaAreas.json";
 import type { IslandMarker, LngLat, MapFeature, MapLevel, RegionShapeProperties } from "./types";
 
 /** 일반구 코드(5자리) → 시 코드(5자리). scripts/build-geo.mjs 가 경계와 함께 만든다 (예: 47111 → 47110) */
@@ -106,53 +107,53 @@ export function isLevelCached(level: MapLevel): boolean {
 
 // ── 바다와 섬 ───────────────────────────────────────────────────────
 
+/** seaAreas.json 의 바다 한 개 (build-geo.mjs 가 육지를 잘라내 만든 GeoJSON Feature) */
+type SeaAreaFeature = Feature<Polygon | MultiPolygon, { code: string; name: string; label_lng: number; label_lat: number }>;
+
 /**
- * 바다 폴리곤을 만든다. 행정경계가 없는 개념적 영역이라 대략적인 꼭짓점으로 정의한다.
- * @param code 바다 코드 (SEA_W 등)
- * @param name 이름
- * @param ring 외곽선 꼭짓점 목록 [경도, 위도]
- * @param labelAt 라벨 위치 (안 주면 무게중심)
+ * 폴리곤의 모든 링(바깥 링과 구멍) 꼭짓점 순서를 뒤집는다.
+ * @param geometry Polygon 또는 MultiPolygon
+ * @returns 순서를 뒤집은 새 geometry
+ */
+function reverseRings(geometry: Polygon | MultiPolygon): Polygon | MultiPolygon {
+  if (geometry.type === "Polygon") {
+    return { type: "Polygon", coordinates: geometry.coordinates.map((ring) => [...ring].reverse()) };
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: geometry.coordinates.map((polygon) => polygon.map((ring) => [...ring].reverse())),
+  };
+}
+
+/**
+ * 바다 폴리곤을 만든다. 바다는 행정경계가 없어 scripts/sea-areas.json 에 대략적인 꼭짓점으로 정의하고,
+ * build-geo.mjs 가 읍면동 경계를 잘라낸 모양(seaAreas.json)을 쓴다. 그래서 육지와 겹치지 않아
+ * 반투명한 육지 색 사이로 바다가 비치지 않는다. 섬은 바다의 구멍(안쪽 링)이다.
+ * @param sea 육지를 잘라낸 바다 Feature
  * @returns 바다 폴리곤
  */
-function makeSea(code: string, name: string, ring: LngLat[], labelAt: LngLat): MapFeature {
-  const geometry: Polygon = { type: "Polygon", coordinates: [ring] };
-  const shape = { type: "Feature" as const, properties: { code, name }, geometry };
-  // d3 는 꼭짓점 순서(시계/반시계)로 안쪽을 판단한다.
-  // 넓이가 지구 절반 이상으로 계산되면 순서가 거꾸로 된 것이므로 뒤집는다.
-  if (geoArea(shape) > 1) {
-    geometry.coordinates = [[...ring].reverse()];
+function makeSea(sea: SeaAreaFeature): MapFeature {
+  const { code, name, label_lng: labelLng, label_lat: labelLat } = sea.properties;
+  const shape = { type: "Feature" as const, properties: { code, name }, geometry: sea.geometry };
+  // d3 는 꼭짓점 순서(시계/반시계)로 안쪽을 판단한다. mapshaper 출력은 d3 와 반대 순서라
+  // 넓이가 지구 절반을 넘게 계산되면 모든 링(바깥 링·섬 구멍)의 순서를 뒤집는다.
+  if (geoArea(shape) > 2 * Math.PI) {
+    shape.geometry = reverseRings(shape.geometry);
   }
   return {
     ...shape,
     id: code,
     kind: "sea",
     regionLevel: "sea",
-    center: labelAt,
+    center: [labelLng, labelLat],
     bounds: geoBounds(shape) as [LngLat, LngLat],
   };
 }
 
-/** 서해·남해·동해. 육지 아래에 깔리도록 먼저 그린다 */
-export const SEA_FEATURES: MapFeature[] = [
-  makeSea(
-    "SEA_W",
-    "서해",
-    [[123.2, 38.7], [126.6, 38.2], [126.95, 36.0], [126.6, 34.4], [125.4, 33.6], [123.4, 34.6], [123.2, 38.7]],
-    [124.55, 36.4],
-  ),
-  makeSea(
-    "SEA_S",
-    "남해",
-    [[125.6, 34.95], [127.6, 34.95], [129.6, 34.95], [129.95, 32.95], [127.0, 32.9], [125.6, 33.4], [125.6, 34.95]],
-    [128.35, 33.35],
-  ),
-  makeSea(
-    "SEA_E",
-    "동해",
-    [[129.2, 38.75], [132.2, 38.75], [132.2, 35.0], [129.9, 34.9], [129.2, 36.4], [129.2, 38.75]],
-    [131.0, 36.7],
-  ),
-];
+/** 서해·남해·동해. 육지를 잘라낸 모양이라 육지와 겹치지 않는다 */
+export const SEA_FEATURES: MapFeature[] = (seaAreas as FeatureCollection<Polygon | MultiPolygon>).features.map(
+  (sea) => makeSea(sea as SeaAreaFeature),
+);
 
 /** 화면에서 너무 작아 따로 클릭 영역을 주는 섬 */
 export const ISLAND_MARKERS: IslandMarker[] = [

@@ -591,10 +591,10 @@ export class KakaoMapRenderer {
     const maps = this.maps;
     const geometry = shape.geometry;
     const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
-    // 각 다각형의 바깥 테두리(첫 번째 링)만 쓴다
-    const path = polygons.map((polygon) =>
-      thinOutRing(polygon[0], thinStep).map(([lng, lat]) => new maps.LatLng(lat, lng)),
-    );
+    // 행정구역은 바깥 테두리(첫 번째 링)만 쓴다(구멍이 거의 없고 꼭짓점이 많아서).
+    // 바다는 육지를 잘라낸 모양이라 섬이 구멍(안쪽 링)이다. 구멍을 빼면 섬 위에 바다 색이 덮이므로 모든 링을 쓴다
+    const rings = shape.kind === "sea" ? polygons.flat() : polygons.map((polygon) => polygon[0]);
+    const path = rings.map((ring) => thinOutRing(ring, thinStep).map(([lng, lat]) => new maps.LatLng(lat, lng)));
 
     const polygon = new maps.Polygon({ map: this.map, path, zIndex, ...this.styleOf(shape) });
     maps.event.addListener(polygon, "click", () => this.callbacks.onSelect(shape));
