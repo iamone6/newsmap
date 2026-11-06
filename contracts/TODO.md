@@ -11,7 +11,6 @@
     - [x] 5단계 첫 배포 `sha-9871b5a` (2026-11-04): 지문은 ECDSA 로 교체, 로컬 DB 복원(기사 14,278·청크 34,241·행정동 9,612, users 제외), API·하이브리드 검색 응답 확인
     - [x] 서버 crontab 등록 (2026-11-04): rag 매일 00:00 하루 1회, 보존 기간 삭제 04:10
     - [x] 첫 cron 실행 확인 (2026-11-05 00:00~00:07): 34개 피드, 신규 247건, 실패 1, 예상 비용 $0.042
-- [ ] fe: 모바일 화면에서 기사 목록 패널을 띄웠다 닫으면 간헐적으로 지도가 비정상 출력된다. 재현 조건(엔진·브라우저·패널 열고 닫는 횟수)부터 확인한다(패널로 지도 크기가 바뀐 뒤 카카오 `relayout()` 이나 SVG 크기 재계산이 빠지는지 의심)
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`
 - [ ] 바다·섬(`SEA_*`, `ISL_*`): rag 분류 규칙과 저장 방식 결정 → `/stats/regions`, `/regions/{code}/articles`
