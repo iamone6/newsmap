@@ -214,9 +214,14 @@ export class KakaoMapRenderer {
       new maps.LatLng(KOREA_BOUNDS.north, KOREA_BOUNDS.east),
     );
 
-    // 한반도 밖으로 끌고 나가면 다시 가운데로 데려온다 (주변국 노출 최소화)
+    // 지도 중심을 한반도 범위(KOREA_BOUNDS) 밖으로 끌고 나가면, 범위 안의 가장 가까운 지점으로 되돌린다
+    // (주변국 노출 최소화). 예전엔 LatLngBounds 에 없는 getCenter() 를 불러 오류가 나고 지도가 그 자리에 멈췄다
     this.listenMap("dragend", () => {
-      if (!this.koreaBounds.contain(this.map.getCenter())) this.map.panTo(this.koreaBounds.getCenter());
+      const center = this.map.getCenter();
+      if (this.koreaBounds.contain(center)) return;
+      const clampedLat = Math.min(KOREA_BOUNDS.north, Math.max(KOREA_BOUNDS.south, center.getLat()));
+      const clampedLng = Math.min(KOREA_BOUNDS.east, Math.max(KOREA_BOUNDS.west, center.getLng()));
+      this.map.panTo(new maps.LatLng(clampedLat, clampedLng));
     });
 
     // 2) 마스크: 바깥 큰 사각형에서 대한민국 모양만 구멍으로 뚫는다
