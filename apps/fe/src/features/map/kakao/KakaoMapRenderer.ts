@@ -38,6 +38,18 @@ export interface KakaoRendererCallbacks {
 const KAKAO_MAX_LEVEL = 13;
 const KAKAO_MIN_LEVEL = 2;
 
+/**
+ * 대한민국 밖을 덮는 마스크. 반투명한 검정으로 주변국 위성 사진을 어둡게 눌러 한반도만 도드라지게 한다
+ * (2026-11-06, 크림색 #f5ead8·0.97 에서 바꿈 — 사용자가 고른 안).
+ */
+const OUTSIDE_MASK_COLOR = "#0b0f14";
+const OUTSIDE_MASK_OPACITY = 0.62;
+/**
+ * 마스크 바깥 사각형 [서, 남, 동, 북]. 가장 축소(레벨 13)한 넓은 화면보다 넉넉해야 가장자리에 밝은 위성 사진이
+ * 드러나지 않는다 (예전 118~140°E 는 1904px 폭 화면의 117.6~139.4°E 를 다 덮지 못했다).
+ */
+const OUTSIDE_MASK_EXTENT = [95, 15, 165, 55] as const;
+
 /** 첫 화면과 [전국] 버튼의 확대 정도 (화면 숫자 3 = 카카오 레벨 11, 시도 단계) */
 const HOME_ZOOM_VALUE = 3;
 const HOME_KAKAO_LEVEL = KAKAO_MAX_LEVEL - HOME_ZOOM_VALUE + 1;
@@ -189,7 +201,7 @@ export class KakaoMapRenderer {
   /**
    * 지도를 만들고 첫 화면을 그린다.
    * 1) 지도 생성 + 전국 범위로 맞추기
-   * 2) 대한민국 밖을 크림색으로 덮는 마스크 그리기
+   * 2) 대한민국 밖을 반투명한 검정으로 어둡게 누르는 마스크 그리기
    * 3) 줌·이동이 끝날 때(idle)마다 단계 확인 후 다시 그리기
    */
   async start(): Promise<void> {
@@ -228,7 +240,14 @@ export class KakaoMapRenderer {
     // topojson merge: 여러 시도 도형을 이어 붙여 대한민국 전체 모양 하나로 만든다
     const sidoShapes = regionsObjectOf(sidoTopology).geometries as Array<TopoPolygon | TopoMultiPolygon>;
     const koreaShape: MultiPolygon = merge(sidoTopology, sidoShapes);
-    const outerRing = [[118, 29], [140, 29], [140, 45], [118, 45], [118, 29]].map(([lng, lat]) => new maps.LatLng(lat, lng));
+    const [maskWest, maskSouth, maskEast, maskNorth] = OUTSIDE_MASK_EXTENT;
+    const outerRing = [
+      [maskWest, maskSouth],
+      [maskEast, maskSouth],
+      [maskEast, maskNorth],
+      [maskWest, maskNorth],
+      [maskWest, maskSouth],
+    ].map(([lng, lat]) => new maps.LatLng(lat, lng));
     const holes = koreaShape.coordinates.map((polygon) =>
       thinOutRing(polygon[0], 3).map(([lng, lat]) => new maps.LatLng(lat, lng)),
     );
@@ -236,8 +255,8 @@ export class KakaoMapRenderer {
       map: this.map,
       path: [outerRing, ...holes],
       strokeWeight: 0,
-      fillColor: MAP_COLORS.background,
-      fillOpacity: 0.97,
+      fillColor: OUTSIDE_MASK_COLOR,
+      fillOpacity: OUTSIDE_MASK_OPACITY,
     });
 
     // 3) 줌·이동이 끝날 때마다
