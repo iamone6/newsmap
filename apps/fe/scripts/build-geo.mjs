@@ -20,8 +20,9 @@
  *
  * 바다(서해·남해·동해)는 행정경계가 없는 개념적 영역이라 scripts/sea-areas.json 에 대략적인 꼭짓점으로 정의한다.
  *   그대로 쓰면 해안선과 겹쳐, 반투명한 육지 색 사이로 바다 색이 비친다(해안 시군구 안의 비스듬한 띠).
- *   그래서 읍면동 경계(지도에 그리는 것 중 가장 정밀)를 바다에서 잘라낸(erase) 모양을
- *   src/features/map/seaAreas.json 으로 저장하고, 지도는 그걸 그린다. 섬은 바다의 구멍이 된다.
+ *   그래서 단계(시도·시군구·읍면동)마다 그 단계 경계를 바다에서 잘라낸(erase) 모양을
+ *   src/features/map/seaAreas.{sido,sigungu,emd}.json 으로 저장하고, 지도는 지금 단계의 바다를 그린다.
+ *   단계마다 단순화 정도가 달라, 한 단계로만 자르면 다른 단계에서 해안선 사이에 틈이 생긴다. 섬은 바다의 구멍이 된다.
  *
  * 실행: npm run build:geo
  * 원본 파일은 .cache/ 에 한 번만 내려받아 두고 다시 쓴다.
@@ -47,7 +48,8 @@ const districtTableFile = path.join(projectRoot, "src", "features", "map", "dist
 /** 바다 정의(대략적인 꼭짓점·라벨 위치)와, 육지를 잘라낸 결과 */
 const seaDefinitionFile = path.join(projectRoot, "scripts", "sea-areas.json");
 const seaInputFile = path.join(cacheDir, "sea-areas.input.geojson");
-const seaOutputFile = path.join(projectRoot, "src", "features", "map", "seaAreas.json");
+/** @param {string} level 단계 이름 @returns {string} 그 단계 바다 결과 파일 */
+const seaOutputFileOf = (level) => path.join(projectRoot, "src", "features", "map", `seaAreas.${level}.json`);
 
 /** "수원시영통구" → ["수원시", "영통구"]. 일반구만 이 모양이다 (일반 자치구는 "광진구"처럼 시 이름이 없다) */
 const GENERAL_DISTRICT_NAME = /^(.+시)(.+구)$/;
@@ -119,14 +121,13 @@ function mergeGeneralDistricts() {
 }
 
 /**
- * 바다 다각형에서 육지(읍면동 경계)를 잘라내 저장한다.
+ * 바다 다각형에서 육지를 단계마다 잘라내 저장한다.
  * 1) sea-areas.json 의 꼭짓점으로 GeoJSON 을 만든다 (라벨 위치는 속성으로 넘긴다)
- * 2) mapshaper -erase 로 읍면동 TopoJSON 과 겹치는 부분을 뺀다. 지도에 그리는 육지와 같은 선이라 틈·겹침이 없다
+ * 2) 단계마다 mapshaper -erase 로 그 단계 TopoJSON 과 겹치는 부분을 뺀다. 그 단계에서 그리는 육지와 같은 선이라 틈·겹침이 없다
  * 3) 좌표를 소수 넷째 자리(약 10m)로 줄여 저장한다
- * @param {string} landFile 잘라낼 육지 TopoJSON (emd.topo.json)
  * @returns {Promise<void>}
  */
-async function buildSeaAreas(landFile) {
+async function buildSeaAreas() {
   const definitions = JSON.parse(readFileSync(seaDefinitionFile, "utf8"));
   const input = {
     type: "FeatureCollection",
@@ -137,8 +138,13 @@ async function buildSeaAreas(landFile) {
     })),
   };
   writeFileSync(seaInputFile, JSON.stringify(input));
-  console.log("만드는 중: seaAreas.json (바다 - 육지)");
-  await runMapshaper(`-i "${seaInputFile}" -erase "${landFile}" -o "${seaOutputFile}" format=geojson precision=0.0001`);
+  for (const level of ["sido", "sigungu", "emd"]) {
+    console.log(`만드는 중: seaAreas.${level}.json (바다 - ${level} 육지)`);
+    const landFile = path.join(outputDir, `${level}.topo.json`);
+    await runMapshaper(
+      `-i "${seaInputFile}" -erase "${landFile}" -o "${seaOutputFileOf(level)}" format=geojson precision=0.0001`,
+    );
+  }
 }
 
 /**
@@ -198,7 +204,7 @@ async function buildAll() {
         `-o "${output}" format=topojson quantization=100000`,
     );
   }
-  await buildSeaAreas(path.join(outputDir, "emd.topo.json"));
+  await buildSeaAreas();
   console.log("완료");
 }
 

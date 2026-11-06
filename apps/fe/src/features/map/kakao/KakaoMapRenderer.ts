@@ -15,8 +15,8 @@ import type { RegionStat } from "@/lib/api/types";
 import { MAP_COLORS, colorForCount } from "../colors";
 import {
   ISLAND_MARKERS,
-  KOREA_BOUNDS,
   SEA_FEATURES,
+  seaFeaturesFor,
   isLevelCached,
   loadLevelFeatures,
   loadTopology,
@@ -49,6 +49,35 @@ const OUTSIDE_MASK_OPACITY = 0.62;
  * 드러나지 않는다 (예전 118~140°E 는 1904px 폭 화면의 117.6~139.4°E 를 다 덮지 못했다).
  */
 const OUTSIDE_MASK_EXTENT = [95, 15, 165, 55] as const;
+/** 마스크는 바다·육지 폴리곤보다 아래에 깐다 */
+const MASK_Z_INDEX = 0;
+
+/**
+ * 지도 중심이 머물 수 있는 범위 [서, 남, 동, 북]. 벗어나서 놓으면 가장 가까운 범위 안 지점으로 되돌린다.
+ * 예전엔 독도까지 넣은 큰 사각형(123.3~132.2°E·32.9~38.75°N) 하나라 북동쪽 끝에서는 화면이 온통 바다였다.
+ * 그래서 본토(백령도·가거도·마라도·고성 포함)와 울릉도·독도 띠 두 개로 나눴다 (2026-11-06).
+ */
+const CENTER_AREAS = [
+  [124.6, 33.1, 129.6, 38.6],
+  [129.6, 37.2, 131.9, 37.6],
+] as const;
+
+/**
+ * 좌표를 CENTER_AREAS 중 가장 가까운 범위 안의 지점으로 옮긴다. 이미 안이면 그대로다.
+ * @param lat 위도
+ * @param lng 경도
+ * @returns [위도, 경도]와, 범위 밖이었는지
+ */
+function clampToCenterAreas(lat: number, lng: number): { lat: number; lng: number; moved: boolean } {
+  let best = { lat, lng, distance: Infinity };
+  for (const [west, south, east, north] of CENTER_AREAS) {
+    const clampedLat = Math.min(north, Math.max(south, lat));
+    const clampedLng = Math.min(east, Math.max(west, lng));
+    const distance = (clampedLat - lat) ** 2 + (clampedLng - lng) ** 2;
+    if (distance < best.distance) best = { lat: clampedLat, lng: clampedLng, distance };
+  }
+  return { lat: best.lat, lng: best.lng, moved: best.distance > 0 };
+}
 
 /**
  * 첫 화면과 [전국] 버튼의 확대 정도(화면 숫자). 모바일은 전국이 다 보이게 1, PC 는 한 단계 확대한 2 (사용자 결정, 2026-11-06).
@@ -167,7 +196,10 @@ export class KakaoMapRenderer {
   private readonly maps: KakaoMapsApi;
 
   private map: KakaoMapsApi = null;
-  private koreaBounds: KakaoMapsApi = null;
+  /** 대한민국 밖을 덮는 마스크 폴리곤. 단계가 바뀔 때 그 단계 경계로 다시 만든다(replaceMask) */
+  private maskPolygon: KakaoMapsApi = null;
+  /** replaceMask 호출 번호. 경계를 불러오는 사이 더 새로운 호출이 오면 오래된 결과를 버린다 */
+  private maskSequence = 0;
   /** 지도에서 지우기 위해 모아 두는 폴리곤·마커·오버레이 */
   private shapes: KakaoMapsApi[] = [];
   /** 지도 자체에 붙인 이벤트 (destroy 때 해제) */
@@ -214,7 +246,6 @@ export class KakaoMapRenderer {
   async start(): Promise<void> {
     const maps = this.maps;
     this.levelFeatures = await loadLevelFeatures("sido");
-    const sidoTopology = await loadTopology("sido");
     if (this.destroyed) return;
 
     // 1) 지도 생성
@@ -228,43 +259,16 @@ export class KakaoMapRenderer {
     });
     this.map.setMaxLevel(KAKAO_MAX_LEVEL); // 전국보다 더 넓게 축소 불가
     this.map.setMinLevel(KAKAO_MIN_LEVEL);
-    this.koreaBounds = new maps.LatLngBounds(
-      new maps.LatLng(KOREA_BOUNDS.south, KOREA_BOUNDS.west),
-      new maps.LatLng(KOREA_BOUNDS.north, KOREA_BOUNDS.east),
-    );
-
-    // 지도 중심을 한반도 범위(KOREA_BOUNDS) 밖으로 끌고 나가면, 범위 안의 가장 가까운 지점으로 되돌린다
-    // (주변국 노출 최소화). 예전엔 LatLngBounds 에 없는 getCenter() 를 불러 오류가 나고 지도가 그 자리에 멈췄다
+    // 지도 중심을 범위(CENTER_AREAS) 밖으로 끌고 나가면, 범위 안의 가장 가까운 지점으로 되돌린다
+    // (주변국·빈 바다 노출 최소화). 예전엔 LatLngBounds 에 없는 getCenter() 를 불러 오류가 나고 지도가 멈췄다
     this.listenMap("dragend", () => {
       const center = this.map.getCenter();
-      if (this.koreaBounds.contain(center)) return;
-      const clampedLat = Math.min(KOREA_BOUNDS.north, Math.max(KOREA_BOUNDS.south, center.getLat()));
-      const clampedLng = Math.min(KOREA_BOUNDS.east, Math.max(KOREA_BOUNDS.west, center.getLng()));
-      this.map.panTo(new maps.LatLng(clampedLat, clampedLng));
+      const clamped = clampToCenterAreas(center.getLat(), center.getLng());
+      if (clamped.moved) this.map.panTo(new maps.LatLng(clamped.lat, clamped.lng));
     });
 
-    // 2) 마스크: 바깥 큰 사각형에서 대한민국 모양만 구멍으로 뚫는다
-    // topojson merge: 여러 시도 도형을 이어 붙여 대한민국 전체 모양 하나로 만든다
-    const sidoShapes = regionsObjectOf(sidoTopology).geometries as Array<TopoPolygon | TopoMultiPolygon>;
-    const koreaShape: MultiPolygon = merge(sidoTopology, sidoShapes);
-    const [maskWest, maskSouth, maskEast, maskNorth] = OUTSIDE_MASK_EXTENT;
-    const outerRing = [
-      [maskWest, maskSouth],
-      [maskEast, maskSouth],
-      [maskEast, maskNorth],
-      [maskWest, maskNorth],
-      [maskWest, maskSouth],
-    ].map(([lng, lat]) => new maps.LatLng(lat, lng));
-    const holes = koreaShape.coordinates.map((polygon) =>
-      thinOutRing(polygon[0], 3).map(([lng, lat]) => new maps.LatLng(lat, lng)),
-    );
-    new maps.Polygon({
-      map: this.map,
-      path: [outerRing, ...holes],
-      strokeWeight: 0,
-      fillColor: OUTSIDE_MASK_COLOR,
-      fillOpacity: OUTSIDE_MASK_OPACITY,
-    });
+    // 2) 마스크: 바깥 큰 사각형에서 대한민국 모양만 구멍으로 뚫는다 (지금 단계 경계로)
+    await this.replaceMask(this.level);
 
     // 3) 줌·이동이 끝날 때마다
     this.listenMap("idle", () => {
@@ -566,8 +570,49 @@ export class KakaoMapRenderer {
       this.level = wantedLevel;
       this.levelFeatures = features;
       this.callbacks.onLevelChange(wantedLevel);
+      void this.replaceMask(wantedLevel);
     }
     this.draw();
+  }
+
+  /**
+   * 대한민국 밖을 덮는 마스크를 그 단계 경계로 다시 만든다.
+   * 구멍(대한민국 모양)을 지금 그리는 단계의 경계를 합친(topojson merge) 모양으로 맞춰, 해안선이 육지 폴리곤과
+   * 똑같아진다. 예전엔 시도 경계를 더 줄인 구멍 하나를 계속 써서 시군구·읍면동 단계에서 해안선이 어긋났고,
+   * 그 틈으로 밝은 위성 사진(파란 조각)이 보였다.
+   * 1) 그 단계 TopoJSON 을 merge 해 대한민국 모양을 만든다 (각 다각형의 바깥 링이 구멍이 된다)
+   * 2) 새 마스크를 먼저 올리고 옛 마스크를 지운다 (깜빡임 방지)
+   * @param level 단계
+   * @returns 다 바꾸면 끝나는 Promise
+   */
+  private async replaceMask(level: MapLevel): Promise<void> {
+    const sequence = ++this.maskSequence;
+    const topology = await loadTopology(level);
+    if (this.destroyed || !this.map || sequence !== this.maskSequence) return;
+
+    const maps = this.maps;
+    const shapes = regionsObjectOf(topology).geometries as Array<TopoPolygon | TopoMultiPolygon>;
+    const koreaShape: MultiPolygon = merge(topology, shapes);
+    const [maskWest, maskSouth, maskEast, maskNorth] = OUTSIDE_MASK_EXTENT;
+    const outerRing = [
+      [maskWest, maskSouth],
+      [maskEast, maskSouth],
+      [maskEast, maskNorth],
+      [maskWest, maskNorth],
+      [maskWest, maskSouth],
+    ].map(([lng, lat]) => new maps.LatLng(lat, lng));
+    const holes = koreaShape.coordinates.map((polygon) => polygon[0].map(([lng, lat]) => new maps.LatLng(lat, lng)));
+
+    const next = new maps.Polygon({
+      map: this.map,
+      path: [outerRing, ...holes],
+      strokeWeight: 0,
+      fillColor: OUTSIDE_MASK_COLOR,
+      fillOpacity: OUTSIDE_MASK_OPACITY,
+      zIndex: MASK_Z_INDEX,
+    });
+    this.maskPolygon?.setMap(null);
+    this.maskPolygon = next;
   }
 
   /** 지금 그려 둔 폴리곤·라벨을 모두 지운다 */
@@ -631,11 +676,11 @@ export class KakaoMapRenderer {
       this.level === "sido"
         ? this.levelFeatures
         : this.levelFeatures.filter((shape) => this.isInView(shape)).slice(0, MAX_VISIBLE_FEATURES);
-    // 시도 단계는 꼭짓점을 반으로 줄여도 충분히 매끄럽다
-    const thinStep = this.level === "sido" ? 2 : 1;
+    // 꼭짓점을 줄이지 않는다. 줄이면 마스크 구멍(같은 경계를 merge 한 모양)과 해안선이 어긋나 틈이 생긴다
+    const thinStep = 1;
 
     // 1) 바다를 먼저, 육지를 나중에 그린다. 겹치는 곳은 zIndex 로도 육지가 위에 오게 한다
-    for (const sea of SEA_FEATURES) this.addPolygon(sea, 1, SEA_Z_INDEX);
+    for (const sea of seaFeaturesFor(this.level)) this.addPolygon(sea, 1, SEA_Z_INDEX);
     for (const shape of visible) this.addPolygon(shape, thinStep, LAND_Z_INDEX);
     // 2) 섬은 폴리곤 위에 클릭 가능한 라벨로 올린다
     for (const island of ISLAND_MARKERS) this.addIsland(island);

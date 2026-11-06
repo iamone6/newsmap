@@ -22,7 +22,7 @@ import {
 } from "d3";
 import type { RegionStat } from "@/lib/api/types";
 import { MAP_COLORS, colorForCount } from "../colors";
-import { ISLAND_MARKERS, SEA_FEATURES, isLevelCached, loadLevelFeatures } from "../geo";
+import { ISLAND_MARKERS, SEA_FEATURES, isLevelCached, loadLevelFeatures, seaFeaturesFor } from "../geo";
 import type { IslandMarker, LngLat, MapFeature, MapHover, MapLevel, MapZoom } from "../types";
 
 /** 렌더러가 바깥(React)으로 알려 주는 일들 */
@@ -455,18 +455,19 @@ export class SvgMapRenderer {
     this.drawLabels();
   }
 
-  /** 바다 폴리곤 (점선 테두리) */
+  /** 바다 폴리곤 (점선 테두리). 지금 단계 육지로 잘라낸 바다를 그린다(단계가 바뀌면 모양도 바뀐다) */
   private drawSeas(): void {
     const paths = this.seaLayer
       .selectAll<SVGPathElement, MapFeature>("path")
-      .data(SEA_FEATURES, (shape) => shape.id)
+      .data(seaFeaturesFor(this.level), (shape) => shape.id)
       .join((enter) => {
-        const created = enter.append("path").attr("class", "cursor-pointer").attr("d", this.pathOf);
+        const created = enter.append("path").attr("class", "cursor-pointer");
         this.bindPointerEvents(created, MAP_COLORS.seaHover);
         return created;
       });
 
     paths
+      .attr("d", this.pathOf)
       .attr("fill", (shape) => this.fillOf(shape))
       .attr("vector-effect", "non-scaling-stroke")
       .attr("stroke-width", 1.2)
