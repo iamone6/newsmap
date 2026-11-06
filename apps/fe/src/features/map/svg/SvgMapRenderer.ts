@@ -46,6 +46,12 @@ const MAX_ZOOM = 26;
 const ZOOM_BUTTON_FACTOR = 1.7;
 
 /**
+ * 첫 화면과 [전국] 버튼의 배율. 화면 숫자 3 이 되면서(배율 1.7^1.5~1.7^2.5) 시도 단계(배율 < 2.4)에
+ * 머무는 값으로 잡아, 카카오(숫자 3 = 레벨 11, 시도)와 똑같이 "시·도 3" 으로 보이게 한다. 1.7^1.6 ≈ 2.34
+ */
+const HOME_SCALE = ZOOM_BUTTON_FACTOR ** 1.6;
+
+/**
  * d3 줌 배율을 화면에 보여 줄 확대 정도로 바꾼다. 배율 1(전국)이 1 이고, 버튼 한 번(×1.7)마다 1 씩 커진다.
  * 휠은 배율이 연속으로 바뀌므로 가장 가까운 칸으로 반올림한다.
  * @param zoomScale d3 줌 배율 (MIN_ZOOM ~ MAX_ZOOM)
@@ -201,14 +207,18 @@ export class SvgMapRenderer {
     this.notifyZoom();
     this.drawAll();
 
-    // 처음에는 한 단계 살짝 확대해서 시작한다 (화면 중심 기준 1.35배)
-    const initialScale = 1.35;
+    // 첫 화면은 확대 정도 3(HOME_SCALE)으로 화면 가운데를 기준으로 확대해 시작한다 ([전국] 버튼과 같다)
+    this.svg.call(this.zoomBehavior.transform, this.homeTransform());
+  }
+
+  /**
+   * 첫 화면·[전국] 버튼의 줌 상태. 전국이 화면에 맞게 그려진 상태(배율 1)에서 화면 가운데를 기준으로 HOME_SCALE 배.
+   * @returns d3 줌 변환
+   */
+  private homeTransform(): ZoomTransform {
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    this.svg.call(
-      this.zoomBehavior.transform,
-      zoomIdentity.translate(centerX - initialScale * centerX, centerY - initialScale * centerY).scale(initialScale),
-    );
+    return zoomIdentity.translate(centerX - HOME_SCALE * centerX, centerY - HOME_SCALE * centerY).scale(HOME_SCALE);
   }
 
   /**
@@ -243,7 +253,7 @@ export class SvgMapRenderer {
 
   /** 전국 보기로 되돌린다 */
   resetView(): void {
-    this.svg.transition().duration(500).call(this.zoomBehavior.transform, zoomIdentity);
+    this.svg.transition().duration(500).call(this.zoomBehavior.transform, this.homeTransform());
   }
 
   /**

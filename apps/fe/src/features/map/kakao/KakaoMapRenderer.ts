@@ -38,6 +38,19 @@ export interface KakaoRendererCallbacks {
 const KAKAO_MAX_LEVEL = 13;
 const KAKAO_MIN_LEVEL = 2;
 
+/** 첫 화면과 [전국] 버튼의 확대 정도 (화면 숫자 3 = 카카오 레벨 11, 시도 단계) */
+const HOME_ZOOM_VALUE = 3;
+const HOME_KAKAO_LEVEL = KAKAO_MAX_LEVEL - HOME_ZOOM_VALUE + 1;
+/** 첫 화면과 [전국] 버튼의 지도 중심 [위도, 경도] (남한 내륙 가운데) */
+const HOME_CENTER: [number, number] = [36.35, 127.9];
+
+/** 지도를 옮길 목표: 이 좌표가 화면의 anchor 자리에 오도록, 이 레벨로 */
+interface FocusTarget {
+  center: KakaoMapsApi;
+  level: number;
+  anchor: { x: number; y: number };
+}
+
 /**
  * 카카오 레벨을 화면에 보여 줄 확대 정도로 바꾼다. 카카오 레벨은 숫자가 작을수록 확대라 헷갈리므로
  * 1(전국, 레벨 13) ~ 12(가장 확대, 레벨 2)로 뒤집는다.
@@ -188,9 +201,10 @@ export class KakaoMapRenderer {
     // 1) 지도 생성
     // 스카이뷰(위성) 지도를 쓴다. 일반 지도(ROADMAP)는 지명·행정경계가 그려져 있어 우리 라벨·경계와
     // 겹쳐 보이는데, 카카오 웹 SDK 에는 그것만 끄는 옵션이 없다. 스카이뷰에는 지명·경계가 없다.
+    // 첫 화면은 확대 정도 3(HOME_KAKAO_LEVEL)으로 남한 가운데에서 시작한다 ([전국] 버튼과 같다)
     this.map = new maps.Map(this.container, {
-      center: new maps.LatLng(36.35, 127.9),
-      level: KAKAO_MAX_LEVEL,
+      center: new maps.LatLng(...HOME_CENTER),
+      level: HOME_KAKAO_LEVEL,
       mapTypeId: maps.MapTypeId.SKYVIEW,
     });
     this.map.setMaxLevel(KAKAO_MAX_LEVEL); // 전국보다 더 넓게 축소 불가
@@ -199,7 +213,6 @@ export class KakaoMapRenderer {
       new maps.LatLng(KOREA_BOUNDS.south, KOREA_BOUNDS.west),
       new maps.LatLng(KOREA_BOUNDS.north, KOREA_BOUNDS.east),
     );
-    this.map.setBounds(this.koreaBounds);
 
     // 한반도 밖으로 끌고 나가면 다시 가운데로 데려온다 (주변국 노출 최소화)
     this.listenMap("dragend", () => {
@@ -264,23 +277,47 @@ export class KakaoMapRenderer {
 
   /** 전국 보기로 되돌린다 */
   resetView(): void {
-    this.map?.setBounds(this.koreaBounds);
+    if (!this.map) return;
+    // 첫 화면과 같은 중심·확대 정도(3)로 부드럽게 돌아간다. 선택이 풀려 목록 패널이 닫히므로 화면 가운데 기준이다
+    this.enqueueFocus(() => {
+      const { width, height } = this.container.getBoundingClientRect();
+      return {
+        center: new this.maps.LatLng(...HOME_CENTER),
+        level: HOME_KAKAO_LEVEL,
+        anchor: { x: width / 2, y: height / 2 },
+      };
+    });
   }
 
   /**
    * 지역이 보이도록 부드럽게 이동·확대한다. PC 는 오른쪽 목록 패널(440px)을 피해서 맞춘다.
    * 확대 정도는 그 지역 단계의 레벨 범위 안으로 맞춘다. 섬·바다는 이동하지 않는다.
-   * 실제 애니메이션은 animateFocus 가 한다(기다리는 동안 다른 지역을 고르면 이전 이동은 멈춘다).
+   * 실제 애니메이션은 animateTo 가 한다(기다리는 동안 다른 지역을 고르면 이전 이동은 멈춘다).
    * @param region 이동할 지역
    */
   focusOn(region: MapFeature | IslandMarker): void {
     if (!this.map || !("properties" in region) || region.kind !== "admin") return;
+    this.enqueueFocus(() => {
+      const [[west, south], [east, north]] = region.bounds;
+      return {
+        center: new this.maps.LatLng((south + north) / 2, (west + east) / 2),
+        level: this.fitLevelFor(region),
+        anchor: this.focusAnchorPoint(),
+      };
+    });
+  }
+
+  /**
+   * 지도 이동을 줄 세운다. 앞의 이동은 sequence 가 바뀐 걸 보고 지금 단계(애니메이션 한 번)만 마치고 멈추고,
+   * 이 이동은 그 뒤에 시작한다. 목표는 시작하는 순간 계산한다(움직이는 중에 좌표를 재면 틀어진다).
+   * @param targetOf 시작할 때 부를 목표 계산 함수
+   */
+  private enqueueFocus(targetOf: () => FocusTarget): void {
     const sequence = ++this.focusSequence;
-    // 앞의 이동은 sequence 가 바뀐 걸 보고 지금 단계(애니메이션 한 번)만 마치고 멈춘다. 그 뒤에 시작한다
     const previous = this.currentFocus;
     this.currentFocus = previous
-      .then(() => this.animateFocus(region, sequence))
-      .catch((error) => console.error("지역으로 이동하지 못했습니다", error)); // 실패해도 다음 이동은 막지 않는다
+      .then(() => this.animateTo(targetOf, sequence))
+      .catch((error) => console.error("지도를 이동하지 못했습니다", error)); // 실패해도 다음 이동은 막지 않는다
   }
 
   /** 지도와 이벤트를 모두 정리한다. 컴포넌트가 사라질 때 부른다 */
@@ -298,7 +335,7 @@ export class KakaoMapRenderer {
   // ── 내부 동작 ─────────────────────────────────────────────────────
 
   /**
-   * 지역으로 부드럽게 이동한다. setBounds 는 애니메이션이 없어 직접 단계를 밟는다.
+   * 목표 중심·레벨로 부드럽게 이동한다 (지역 선택·[전국] 버튼). setBounds 는 애니메이션이 없어 직접 단계를 밟는다.
    * 1) 지금 레벨에서 지역 중심이 화면 기준점(패널을 뺀 가운데)에 오도록 panBy 로 미끄러지듯 옮긴다
    * 2) 목표 레벨로 확대·축소한다. 기준점(anchor)을 지역 중심으로 두어 지역이 화면 같은 자리에 머문다.
    *    카카오 애니메이션은 레벨 차이 2 이하만 되고, 새 레벨 타일이 준비될 때까지 시작이 늦어져
@@ -306,21 +343,18 @@ export class KakaoMapRenderer {
    *    한 번에 맞춘 뒤 마지막 2레벨만 애니메이션한다
    * 3) 다 끝나면 단계 전환(handleIdle)을 한 번만 한다. 중간 레벨에서 전환하면 읍면동을 고를 때
    *    중간의 시군구 레벨에서 선택이 풀린다
-   * @param region 이동할 지역 (행정구역)
-   * @param sequence focusOn 호출 번호. 더 새로운 호출이 오면 여기서 멈춘다
+   * @param targetOf 목표(중심·레벨·화면 기준점)를 계산하는 함수. 앞 이동이 멈춘 뒤 시작할 때 부른다
+   * @param sequence 이동 호출 번호(enqueueFocus). 더 새로운 호출이 오면 여기서 멈춘다
    */
-  private async animateFocus(region: MapFeature, sequence: number): Promise<void> {
-    const maps = this.maps;
-    const [[west, south], [east, north]] = region.bounds;
-    const center = new maps.LatLng((south + north) / 2, (west + east) / 2);
+  private async animateTo(targetOf: () => FocusTarget, sequence: number): Promise<void> {
     const isStale = () => this.destroyed || !this.map || sequence !== this.focusSequence;
     // 기다리는 사이 더 새로운 이동이 들어왔으면 시작하지 않는다
     if (isStale()) return;
+    const { center, level: targetLevel, anchor } = targetOf();
 
     this.isFocusing = true;
     try {
       // 1) 이동
-      const anchor = this.focusAnchorPoint();
       const point = this.map.getProjection().containerPointFromCoords(center);
       const moveX = point.x - anchor.x;
       const moveY = point.y - anchor.y;
@@ -330,7 +364,6 @@ export class KakaoMapRenderer {
       }
 
       // 2) 확대·축소. 레벨 차이가 크면 목표 2레벨 앞까지는 애니메이션 없이 맞추고, 마지막 2레벨만 애니메이션한다
-      const targetLevel = this.fitLevelFor(region);
       const current = this.map.getLevel();
       if (Math.abs(targetLevel - current) > MAX_ANIMATED_LEVEL_STEP) {
         const direction = targetLevel > current ? 1 : -1;
@@ -452,7 +485,7 @@ export class KakaoMapRenderer {
    * 경계를 기다린 뒤 더 새로운 호출이 있었으면 이 호출의 결과는 버린다.
    */
   private async handleIdle(): Promise<void> {
-    // 지역으로 이동하는 애니메이션 중간의 idle 은 무시한다. 이동이 끝나면 animateFocus 가 다시 부른다
+    // 지역으로 이동하는 애니메이션 중간의 idle 은 무시한다. 이동이 끝나면 animateTo 가 다시 부른다
     if (this.isFocusing) return;
     const sequence = ++this.idleSequence;
     const wantedLevel = levelForKakao(this.map.getLevel());
