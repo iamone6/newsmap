@@ -75,6 +75,19 @@ export interface MapEngineHandle {
   selectByCode(code: string): Promise<void>;
 }
 
+/**
+ * 화면에 보여 주는 확대 정도. 1 이 전국이고 확대할수록 커진다.
+ * 엔진마다 확대 범위가 달라 max 가 다르다 (카카오 1~12, SVG 1~7).
+ */
+export interface MapZoom {
+  /** 지금 확대 정도 */
+  value: number;
+  /** 가장 축소했을 때 (항상 1) */
+  min: number;
+  /** 가장 확대했을 때 */
+  max: number;
+}
+
 /** 두 지도 엔진이 똑같이 받는 props */
 export interface MapEngineProps {
   /** 지역 코드 → 통계(기사 수 등). 지도 색칠과 라벨 숫자에 쓴다 */
@@ -87,6 +100,8 @@ export interface MapEngineProps {
   onSelect: (region: RegionRef) => void;
   /** 줌이 바뀌어 행정구역 단계가 달라졌을 때 */
   onLevelChange: (level: MapLevel) => void;
+  /** 확대 정도(숫자)가 바뀌었을 때. 좌하단 단계 칩의 [ - ] 숫자 [ + ] 에 쓴다 */
+  onZoomChange: (zoom: MapZoom) => void;
   /** 마우스가 지역 위에 올라가거나(값) 벗어날 때(null) */
   onHover: (hover: MapHover | null) => void;
   /** 바깥에서 지도를 조작하기 위한 ref (React 19 부터 ref 를 일반 prop 으로 받는다) */

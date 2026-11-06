@@ -7,8 +7,7 @@ import { isAdminLevel, regionPathOf } from "@/features/map/geo";
 import { LevelChip } from "@/features/map/LevelChip";
 import { MapStage } from "@/features/map/MapStage";
 import { MapTooltip } from "@/features/map/MapTooltip";
-import type { MapEngineHandle, MapHover, MapLevel } from "@/features/map/types";
-import { ZoomControls } from "@/features/map/ZoomControls";
+import type { MapEngineHandle, MapHover, MapLevel, MapZoom } from "@/features/map/types";
 import { LatestTicker } from "@/features/stats/LatestTicker";
 import { SummaryRail } from "@/features/stats/SummaryRail";
 import { useRegionStats, useSummaryStats } from "@/features/stats/useStats";
@@ -27,6 +26,8 @@ import type { RegionRef } from "@/lib/api/types";
 export function NewsMapApp() {
   const mapRef = useRef<MapEngineHandle>(null);
   const [level, setLevel] = useState<MapLevel>("sido");
+  /** 확대 정도 숫자 (지도 엔진이 알려 준다). 좌하단 단계 칩에 보여 준다 */
+  const [zoom, setZoom] = useState<MapZoom | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<RegionRef | null>(null);
   const [hover, setHover] = useState<MapHover | null>(null);
   /** 선택한 지역의 경로. 어떤 지역의 경로인지 code 와 함께 보관한다 */
@@ -85,12 +86,14 @@ export function NewsMapApp() {
         selectedCode={selectedRegion?.code ?? null}
         onSelect={setSelectedRegion}
         onLevelChange={handleLevelChange}
+        onZoomChange={setZoom}
         onHover={setHover}
       />
 
       <Breadcrumbs items={crumbs} onSelectCode={selectByCode} />
-      <LevelChip level={level} />
-      <ZoomControls
+      <LevelChip
+        level={level}
+        zoom={zoom}
         onZoomIn={() => mapRef.current?.zoomIn()}
         onZoomOut={() => mapRef.current?.zoomOut()}
         onReset={resetToNation}

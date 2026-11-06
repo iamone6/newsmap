@@ -19,7 +19,16 @@ interface KakaoMapEngineProps extends MapEngineProps {
  * @param props KakaoMapEngineProps 참고
  * @returns 지도를 담는 div
  */
-export function KakaoMapEngine({ maps, statsByCode, legend, selectedCode, onSelect, onLevelChange, ref }: KakaoMapEngineProps) {
+export function KakaoMapEngine({
+  maps,
+  statsByCode,
+  legend,
+  selectedCode,
+  onSelect,
+  onLevelChange,
+  onZoomChange,
+  ref,
+}: KakaoMapEngineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<KakaoMapRenderer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -36,6 +45,7 @@ export function KakaoMapEngine({ maps, statsByCode, legend, selectedCode, onSele
   // useEffectEvent: 렌더러가 불러도 항상 최신 props 를 보게 해 주는 React 19 훅
   const handleMapSelect = useEffectEvent(selectRegion);
   const notifyLevelChange = useEffectEvent(onLevelChange);
+  const notifyZoomChange = useEffectEvent(onZoomChange);
   const applyCurrentState = useEffectEvent((renderer: KakaoMapRenderer) => {
     renderer.setStats(statsByCode, legend);
     renderer.setSelected(selectedCode);
@@ -51,6 +61,7 @@ export function KakaoMapEngine({ maps, statsByCode, legend, selectedCode, onSele
       {
         onSelect: (region) => handleMapSelect(region),
         onLevelChange: (level) => notifyLevelChange(level),
+        onZoomChange: (zoom) => notifyZoomChange(zoom),
         onLoadingChange: setIsLoading,
       },
       maps,

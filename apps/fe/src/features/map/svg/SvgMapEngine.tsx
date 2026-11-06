@@ -15,7 +15,16 @@ const RESIZE_THRESHOLD_PX = 40;
  * @param props MapEngineProps 참고
  * @returns 지도를 담는 div
  */
-export function SvgMapEngine({ statsByCode, legend, selectedCode, onSelect, onLevelChange, onHover, ref }: MapEngineProps) {
+export function SvgMapEngine({
+  statsByCode,
+  legend,
+  selectedCode,
+  onSelect,
+  onLevelChange,
+  onZoomChange,
+  onHover,
+  ref,
+}: MapEngineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<SvgMapRenderer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +43,7 @@ export function SvgMapEngine({ statsByCode, legend, selectedCode, onSelect, onLe
   // useEffectEvent: 렌더러(effect 안에서 만든 객체)가 불러도 항상 최신 props 를 보게 해 주는 React 19 훅
   const handleMapSelect = useEffectEvent(selectRegion);
   const notifyLevelChange = useEffectEvent(onLevelChange);
+  const notifyZoomChange = useEffectEvent(onZoomChange);
   const notifyHover = useEffectEvent(onHover);
   const applyCurrentState = useEffectEvent((renderer: SvgMapRenderer) => {
     renderer.setStats(statsByCode, legend);
@@ -48,6 +58,7 @@ export function SvgMapEngine({ statsByCode, legend, selectedCode, onSelect, onLe
     const renderer = new SvgMapRenderer(container, {
       onSelect: (region) => handleMapSelect(region),
       onLevelChange: (level) => notifyLevelChange(level),
+      onZoomChange: (zoom) => notifyZoomChange(zoom),
       onHover: (hover) => notifyHover(hover),
       onLoadingChange: setIsLoading,
     });

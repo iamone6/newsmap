@@ -22,7 +22,7 @@ import {
   loadTopology,
   regionsObjectOf,
 } from "../geo";
-import type { IslandMarker, MapFeature, MapLevel } from "../types";
+import type { IslandMarker, MapFeature, MapLevel, MapZoom } from "../types";
 import type { KakaoMapsApi } from "./loadKakaoSdk";
 
 /** 렌더러가 바깥(React)으로 알려 주는 일들 */
@@ -30,11 +30,27 @@ export interface KakaoRendererCallbacks {
   onSelect: (region: MapFeature | IslandMarker) => void;
   onLevelChange: (level: MapLevel) => void;
   onLoadingChange: (loading: boolean) => void;
+  /** 확대 정도가 바뀌었을 때 (zoom_changed) */
+  onZoomChange: (zoom: MapZoom) => void;
 }
 
 /** 카카오 지도 레벨 범위. 13이 전국, 2가 동네 */
 const KAKAO_MAX_LEVEL = 13;
 const KAKAO_MIN_LEVEL = 2;
+
+/**
+ * 카카오 레벨을 화면에 보여 줄 확대 정도로 바꾼다. 카카오 레벨은 숫자가 작을수록 확대라 헷갈리므로
+ * 1(전국, 레벨 13) ~ 12(가장 확대, 레벨 2)로 뒤집는다.
+ * @param kakaoLevel 카카오 지도 레벨
+ * @returns 확대 정도
+ */
+function zoomOfKakaoLevel(kakaoLevel: number): MapZoom {
+  return {
+    value: KAKAO_MAX_LEVEL - kakaoLevel + 1,
+    min: 1,
+    max: KAKAO_MAX_LEVEL - KAKAO_MIN_LEVEL + 1,
+  };
+}
 
 /** 단계별 카카오 지도 레벨 범위 [가까이, 멀리] */
 const KAKAO_LEVEL_RANGE: Record<MapLevel, [number, number]> = {
@@ -210,6 +226,9 @@ export class KakaoMapRenderer {
     this.listenMap("idle", () => {
       void this.handleIdle();
     });
+    // 4) 확대 정도 숫자 (애니메이션이 시작될 때 이미 목표 레벨이 된다)
+    this.listenMap("zoom_changed", () => this.callbacks.onZoomChange(zoomOfKakaoLevel(this.map.getLevel())));
+    this.callbacks.onZoomChange(zoomOfKakaoLevel(this.map.getLevel()));
     this.draw();
   }
 

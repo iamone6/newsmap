@@ -23,7 +23,7 @@ import {
 import type { RegionStat } from "@/lib/api/types";
 import { MAP_COLORS, colorForCount } from "../colors";
 import { ISLAND_MARKERS, SEA_FEATURES, isLevelCached, loadLevelFeatures } from "../geo";
-import type { IslandMarker, LngLat, MapFeature, MapHover, MapLevel } from "../types";
+import type { IslandMarker, LngLat, MapFeature, MapHover, MapLevel, MapZoom } from "../types";
 
 /** 렌더러가 바깥(React)으로 알려 주는 일들 */
 export interface SvgRendererCallbacks {
@@ -32,6 +32,8 @@ export interface SvgRendererCallbacks {
   onHover: (hover: MapHover | null) => void;
   /** 경계 파일을 불러오는 중인지 (화면 상단 "불러오는 중" 표시용) */
   onLoadingChange: (loading: boolean) => void;
+  /** 확대 정도(숫자)가 바뀌었을 때 */
+  onZoomChange: (zoom: MapZoom) => void;
 }
 
 /** 이 폭 이하이면 모바일 화면으로 본다 */
@@ -40,6 +42,19 @@ export const MOBILE_MAX_WIDTH = 768;
 /** 줌 배율 범위 */
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 26;
+/** 확대·축소 버튼 한 번에 바뀌는 배율. 화면에 보이는 확대 정도 숫자 1 칸도 이 배율이다 */
+const ZOOM_BUTTON_FACTOR = 1.7;
+
+/**
+ * d3 줌 배율을 화면에 보여 줄 확대 정도로 바꾼다. 배율 1(전국)이 1 이고, 버튼 한 번(×1.7)마다 1 씩 커진다.
+ * 휠은 배율이 연속으로 바뀌므로 가장 가까운 칸으로 반올림한다.
+ * @param zoomScale d3 줌 배율 (MIN_ZOOM ~ MAX_ZOOM)
+ * @returns 확대 정도
+ */
+function zoomOfScale(zoomScale: number): MapZoom {
+  const steps = (scale: number) => 1 + Math.round(Math.log(scale) / Math.log(ZOOM_BUTTON_FACTOR));
+  return { value: steps(zoomScale), min: 1, max: steps(MAX_ZOOM) };
+}
 
 /**
  * 단계별 줌 배율 범위. 배율이 이 범위에 들어오면 해당 단계 경계를 그린다.
@@ -120,6 +135,8 @@ export class SvgMapRenderer {
   private legend: number[] = [];
   private selectedCode: string | null = null;
   private zoomScale = 1;
+  /** 마지막으로 알린 확대 정도 숫자. 줌 이벤트는 매 프레임 오므로 숫자가 바뀔 때만 알린다 */
+  private lastZoomValue = 0;
   private levelSwitchTimer: ReturnType<typeof setTimeout> | undefined;
   private destroyed = false;
 
@@ -157,11 +174,20 @@ export class SvgMapRenderer {
       .on("zoom", (event: { transform: ZoomTransform }) => {
         root.attr("transform", event.transform.toString());
         this.zoomScale = event.transform.k;
+        this.notifyZoom();
         this.handleZoom();
       })
       // 줌·이동이 끝나면 화면에 새로 들어온 폴리곤을 그린다
       .on("end", () => this.drawAll());
     this.svg.call(this.zoomBehavior);
+  }
+
+  /** 확대 정도 숫자가 바뀌었으면 바깥에 알린다 */
+  private notifyZoom(): void {
+    const zoom = zoomOfScale(this.zoomScale);
+    if (zoom.value === this.lastZoomValue) return;
+    this.lastZoomValue = zoom.value;
+    this.callbacks.onZoomChange(zoom);
   }
 
   /**
@@ -172,6 +198,7 @@ export class SvgMapRenderer {
     this.levelFeatures = await loadLevelFeatures("sido");
     if (this.destroyed) return;
     this.fitProjection(this.levelFeatures);
+    this.notifyZoom();
     this.drawAll();
 
     // 처음에는 한 단계 살짝 확대해서 시작한다 (화면 중심 기준 1.35배)
@@ -206,12 +233,12 @@ export class SvgMapRenderer {
 
   /** 한 단계(1.7배) 확대 */
   zoomIn(): void {
-    this.svg.transition().duration(250).call(this.zoomBehavior.scaleBy, 1.7);
+    this.svg.transition().duration(250).call(this.zoomBehavior.scaleBy, ZOOM_BUTTON_FACTOR);
   }
 
   /** 한 단계 축소 */
   zoomOut(): void {
-    this.svg.transition().duration(250).call(this.zoomBehavior.scaleBy, 1 / 1.7);
+    this.svg.transition().duration(250).call(this.zoomBehavior.scaleBy, 1 / ZOOM_BUTTON_FACTOR);
   }
 
   /** 전국 보기로 되돌린다 */
