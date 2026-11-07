@@ -349,6 +349,9 @@ SET hnsw.ef_search = 200
 -- pg_search(0.25.11)는 그 generic plan 에서 "Unsupported query shape" 로 실패하므로(2026-11-07 확인,
 -- be 처럼 연결을 오래 쓰는 쪽은 6번째 검색부터 깨진다) 매번 값에 맞춘 계획을 세운다.
 SET plan_cache_mode = 'force_custom_plan'
+-- BM25 TopK 질의는 병렬 스캔을 타면 워커 기동·병합 고정비로 오히려 느려진다(2026-11-07 측정:
+-- `NOT is_wire` 가 붙으면 병렬 계획이 선택돼 약 530ms → 끄면 약 170ms, 새 인덱스 기준 2ms).
+SET max_parallel_workers_per_gather = 0
 AS $$
     -- BM25 후보는 MATERIALIZED 로 먼저 뽑고 순위는 바깥에서 매긴다. pdb.score 를 아래 하한 조건에서
     -- 다시 참조하는 모양이 BM25 스캔 안으로 풀려 들어가면 pg_search 가 "Unsupported query shape" 를 낸다.

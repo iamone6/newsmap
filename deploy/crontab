@@ -7,3 +7,6 @@
 
 # 매일 04:10 보존 기간(1년) 지난 기사 삭제
 10 4 * * * /srv/newsmap/deploy/purge-old-articles.sh >> /srv/newsmap/deploy/cron.log 2>&1
+
+# 매일 04:30 BM25 인덱스 재색인 (삭제 문서·세그먼트 누적 제거). 04:10 삭제 작업 뒤에 돌린다
+30 4 * * * /srv/newsmap/deploy/reindex-bm25.sh >> /srv/newsmap/deploy/cron.log 2>&1
