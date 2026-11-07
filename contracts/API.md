@@ -162,6 +162,7 @@ v1 응답에는 `favorite_region_count` 가 없다(관심 지역 미구현).
 - `include_children=1`: `article_chunks.region_codes && ARRAY[변환코드]`로 거른다(= `search_chunks()`의 `p_region_codes`). `region_codes`는 기사 지역을 상위 단위까지 펼쳐 저장하므로, 시도로 물으면 그 아래 시군구·읍면동 기사까지 잡힌다.
 - `include_children=0`: `article_regions`에서 해당 depth 컬럼(`sido_code`/`sigungu_code`/`emd_code`)이 정확히 일치하고 그보다 아래 depth는 NULL인 기사만 고른다(그 depth로만 판정된 기사).
 - `q`가 있으면 `search_chunks()`(BM25+벡터 RRF)를 쓰고 **관련도 순**으로 준다(`sort` 무시). 없으면 `published_at` 최신순 목록을 쓴다.
+- 검색은 관련도 하한(벡터 유사도, BM25 최대 점수 대비 비율) 아래 기사를 뺀다. 그래서 맞는 기사가 없으면 `data` 가 빈 배열이고 `total` 이 0 이다. 임베딩이 실패한 BM25 검색(`search_type=bm25`)은 BM25 비율만 본다.
 - `q` 가 있을 때만 `meta.search_type` 을 준다: `hybrid`(BM25+벡터) 또는 `bm25`(쿼리 임베딩 호출이 실패해 키워드 검색만 한 경우).
 
 ```json

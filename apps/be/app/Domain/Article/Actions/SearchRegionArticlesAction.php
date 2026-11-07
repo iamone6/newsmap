@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Log;
 /**
  * 지역 안에서 기사를 검색한다.
  * 쿼리 임베딩이 되면 search_chunks()(BM25 + 벡터 RRF), 실패하면 BM25 만 쓴다.
+ * 두 경로 모두 관련도 하한(config newsmap.search) 아래 청크는 뺀다.
  * 결과는 청크 단위라 기사 단위로 묶은 뒤(가장 높은 청크 순서 유지) 페이지를 자른다.
  */
 class SearchRegionArticlesAction
@@ -56,7 +57,8 @@ class SearchRegionArticlesAction
     }
 
     /**
-     * search_chunks() 로 하이브리드 검색한다.
+     * search_chunks() 로 하이브리드 검색한다. 관련도 하한(config newsmap.search) 아래 청크는 DB 가 뺀다.
+     * 설정은 코사인 유사도라 search_chunks() 가 받는 코사인 거리(1 - 유사도)로 바꿔 넘긴다.
      *
      * @param  string  $searchText  검색어
      * @param  list<float>  $embedding  검색어 임베딩
@@ -68,12 +70,15 @@ class SearchRegionArticlesAction
         return DB::select(
             'SELECT article_id
              FROM search_chunks(
-                 p_query_text      => ?,
-                 p_query_embedding => ?::halfvec,
-                 p_region_codes    => ARRAY[?]::varchar(10)[],
-                 p_exclude_wire    => ?,
-                 p_limit           => ?,
-                 p_candidates      => ?
+                 p_query_text           => ?,
+                 p_query_embedding      => ?::halfvec,
+                 p_region_codes         => ARRAY[?]::varchar(10)[],
+                 p_exclude_wire         => ?,
+                 p_limit                => ?,
+                 p_candidates           => ?,
+                 p_max_vector_distance  => ?,
+                 p_max_hybrid_distance  => ?,
+                 p_min_text_score_ratio => ?
              )',
             [
                 $searchText,
@@ -82,12 +87,17 @@ class SearchRegionArticlesAction
                 (bool) config('newsmap.exclude_wire'),
                 ArticleConsts::SEARCH_CHUNK_LIMIT,
                 ArticleConsts::SEARCH_CHUNK_LIMIT,
+                1 - (float) config('newsmap.search.min_vector_similarity'),
+                1 - (float) config('newsmap.search.min_hybrid_similarity'),
+                (float) config('newsmap.search.min_text_score_ratio'),
             ],
         );
     }
 
     /**
      * BM25(pg_search, 한국어 Lindera)만으로 검색한다. search_chunks() 의 text_hits 와 같은 조건이다.
+     * 거리가 없으므로 관련도 하한은 "BM25 최대 점수 대비 비율"만 건다.
+     * 후보는 먼저 MATERIALIZED 로 뽑는다(pdb.score 를 바깥에서 다시 쓰는 모양이 BM25 스캔 안으로 풀리지 않게).
      *
      * @param  string  $searchText  검색어
      * @param  Region  $region  지역 필터
@@ -98,14 +108,29 @@ class SearchRegionArticlesAction
         $wireCondition = config('newsmap.exclude_wire') ? 'AND NOT c.is_wire' : '';
 
         return DB::select(
-            "SELECT c.article_id
-             FROM article_chunks c
-             WHERE c.embed_text ||| ?
-               AND c.region_codes && ARRAY[?]::varchar(10)[]
-               {$wireCondition}
-             ORDER BY pdb.score(c.id) DESC, c.id
-             LIMIT ?",
-            [$searchText, $region->code, ArticleConsts::SEARCH_CHUNK_LIMIT],
+            "WITH text_candidates AS MATERIALIZED (
+                 SELECT c.id, c.article_id, pdb.score(c.id)::double precision AS text_score
+                 FROM article_chunks c
+                 WHERE c.embed_text ||| ?
+                   AND c.region_codes && ARRAY[?]::varchar(10)[]
+                   {$wireCondition}
+                 ORDER BY pdb.score(c.id) DESC, c.id
+                 LIMIT ?
+             ),
+             scored AS (
+                 SELECT id, article_id, text_score, max(text_score) OVER () AS max_text_score
+                 FROM text_candidates
+             )
+             SELECT article_id
+             FROM scored
+             WHERE text_score >= ? * max_text_score
+             ORDER BY text_score DESC, id",
+            [
+                $searchText,
+                $region->code,
+                ArticleConsts::SEARCH_CHUNK_LIMIT,
+                (float) config('newsmap.search.min_text_score_ratio'),
+            ],
         );
     }
 

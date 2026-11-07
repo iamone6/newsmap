@@ -108,6 +108,17 @@ SELECT * FROM search_chunks(
 
 BM25 결과와 벡터 결과를 각각 `p_candidates`(기본 100)개씩 뽑은 뒤, RRF(`k = p_rrf_k`, 기본 60)로 합칩니다.
 
+RRF 점수는 순위만 본 상대값이라, 관련 없는 청크도 결과를 채웁니다. 그래서 관련도 하한을 따로 겁니다(2026-11-07). 청크는 아래 둘 중 하나를 만족해야 남습니다.
+
+1. 벡터 매칭: 코사인 거리 ≤ `p_max_vector_distance`
+2. BM25 강매칭: BM25 점수 ≥ `p_min_text_score_ratio` × 그 검색의 BM25 최대 점수, 그리고 코사인 거리 ≤ `p_max_hybrid_distance`
+
+세 값의 기본은 NULL(거르지 않음)입니다. be 는 `config/newsmap.php` 의 `search` 값을 유사도로 받아 넘깁니다. 기본값은 벡터 유사도 0.40, BM25 강매칭 유사도 0.35, 비율 0.5 입니다.
+
+맞는 기사가 없으면 결과가 비어 있을 수 있습니다. 반환값의 `text_score` 와 `vector_distance` 로 하한을 조정할 때 분포를 볼 수 있습니다.
+
+함수에는 `plan_cache_mode = force_custom_plan` 을 겁니다. PG18 은 SQL 함수의 계획을 캐시해서 한 연결에서 5번 부른 뒤부터 generic plan 을 씁니다. pg_search 0.25.11 은 이 generic plan 에서 "Unsupported query shape" 로 실패합니다.
+
 ## 행정동 마스터 적재
 
 1. [주민등록 행정동 코드](https://jumin.mois.go.kr/)에서 행정기관 코드 파일을 받아, 압축 안의 `KIKcd_H.YYYYMMDD.xlsx`를 꺼냅니다.

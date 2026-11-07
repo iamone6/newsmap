@@ -25,6 +25,23 @@ return [
     'exclude_wire' => (bool) env('RAG_EXCLUDE_WIRE', true),
 
     /*
+    | 검색 관련도 하한 (2026-11-07). RRF 점수는 순위만 본 상대값이라, 청크마다 아래 기준을 따로 본다.
+    | 청크는 다음 둘 중 하나를 만족해야 결과에 남는다 (search_chunks() 주석 참고).
+    |   1) 벡터 유사도 >= min_vector_similarity
+    |   2) BM25 점수 >= min_text_score_ratio * 그 검색의 BM25 최대 점수, 그리고 벡터 유사도 >= min_hybrid_similarity
+    | 유사도는 코사인 유사도(= 1 - pgvector 코사인 거리, 1 에 가까울수록 비슷함)다.
+    | 근거(로컬 실측, Qwen3-Embedding-0.6B): 관련 결과는 대체로 유사도 0.42 이상, 무관한 결과는 0.4 미만이었다.
+    | 0.40 은 그보다 약간 느슨하게 잡은 사용자 결정이다. BM25 에 강하게 걸린 기사는 유사도 0.35~0.4 에도 관련 기사가 있어
+    | 따로 느슨하게 둔다. BM25 비율은 "비트코인 시세" 처럼 흔한 토큰 하나만 걸린 약한 매칭(최대의 43%)을 거른다.
+    | 임베딩이 실패한 BM25 대체 검색은 거리가 없어 min_text_score_ratio 만 쓴다.
+    */
+    'search' => [
+        'min_vector_similarity' => (float) env('SEARCH_MIN_VECTOR_SIMILARITY', 0.40),
+        'min_hybrid_similarity' => (float) env('SEARCH_MIN_HYBRID_SIMILARITY', 0.35),
+        'min_text_score_ratio' => (float) env('SEARCH_MIN_TEXT_SCORE_RATIO', 0.5),
+    ],
+
+    /*
     | 통계 API 응답 캐시 시간(초).
     */
     'stats_cache_seconds' => 60,

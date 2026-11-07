@@ -84,4 +84,4 @@ docker compose exec be php artisan route:list
 
 
 <!-- BE CLAUDE.md 로 이동예정 -->
-**검색**: DB 함수 `search_chunks()`가 BM25(`pdb.lindera(korean)`, `|||` 연산자)와 HNSW 코사인 결과를 각각 `p_candidates`개 뽑아 RRF(k=60)로 결합한다. 필터(지역·섹션·기간·`p_exclude_wire`)는 NULL이면 미적용. 쿼리 임베딩에는 Qwen3의 query instruction을 적용해야 한다. 지역·섹션 배열 필터는 pg_search 인덱스 안에서 처리되지 않아 BM25 쪽이 느려질 수 있다(PoC 규모에선 허용).
+**검색**: DB 함수 `search_chunks()`가 BM25(`pdb.lindera(korean)`, `|||` 연산자)와 HNSW 코사인 결과를 각각 `p_candidates`개 뽑아 RRF(k=60)로 결합한다. 필터(지역·섹션·기간·`p_exclude_wire`)는 NULL이면 미적용. 관련도 하한(`p_max_vector_distance`, `p_max_hybrid_distance`, `p_min_text_score_ratio`)은 RRF 결합 뒤에 청크마다 코사인 거리와 BM25 최대 점수 대비 비율로 거른다. be 값은 `config/newsmap.php` 의 `search` 다. 함수는 `plan_cache_mode = force_custom_plan` 이다. 빼면 pg_search 가 한 연결의 6번째 호출부터 실패한다. 쿼리 임베딩에는 Qwen3의 query instruction을 적용해야 한다. 지역·섹션 배열 필터는 pg_search 인덱스 안에서 처리되지 않아 BM25 쪽이 느려질 수 있다(PoC 규모에선 허용).

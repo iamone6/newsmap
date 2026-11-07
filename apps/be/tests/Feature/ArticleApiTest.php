@@ -124,6 +124,78 @@ class ArticleApiTest extends TestCase
     }
 
     /**
+     * 하이브리드 검색은 BM25 에도 안 걸리고 벡터도 먼(유사도 0) 기사를 빼서, 같은 지역의 무관한 기사가 딸려 나오지 않는다.
+     * (하한이 없을 때는 벡터 쪽이 가장 가까운 청크를 항상 채워 수원시 버스 기사도 나왔다)
+     */
+    public function test_hybrid_search_drops_unrelated_articles(): void
+    {
+        Http::fake([
+            '*/embeddings' => Http::response(['data' => [['embedding' => $this->unitVector(1)]]]),
+        ]);
+
+        $this->getJson('/api/v1/regions/41/articles?q=조합')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$this->maetanArticleId])
+            ->assertJsonPath('meta.total', 1);
+    }
+
+    /**
+     * 맞는 기사가 없는 검색어는 빈 목록이다(엉뚱한 기사로 채우지 않는다).
+     */
+    public function test_hybrid_search_returns_empty_when_nothing_matches(): void
+    {
+        Http::fake([
+            '*/embeddings' => Http::response(['data' => [['embedding' => $this->unitVector(9)]]]),
+        ]);
+
+        $this->getJson('/api/v1/regions/41/articles?q=양자컴퓨터')
+            ->assertOk()
+            ->assertJsonPath('data', [])
+            ->assertJsonPath('meta.total', 0);
+    }
+
+    /**
+     * BM25 에 걸려도 의미(벡터)가 너무 먼 기사는 뺀다.
+     */
+    public function test_hybrid_search_drops_text_match_with_distant_vector(): void
+    {
+        Http::fake([
+            '*/embeddings' => Http::response(['data' => [['embedding' => $this->unitVector(9)]]]),
+        ]);
+
+        $this->getJson('/api/v1/regions/41/articles?q=조합')
+            ->assertOk()
+            ->assertJsonPath('data', []);
+    }
+
+    /**
+     * BM25 에 안 걸려도 벡터가 충분히 가까우면 남긴다.
+     */
+    public function test_hybrid_search_keeps_close_vector_match_without_text_match(): void
+    {
+        Http::fake([
+            '*/embeddings' => Http::response(['data' => [['embedding' => $this->unitVector(2)]]]),
+        ]);
+
+        $this->getJson('/api/v1/regions/41/articles?q=대중교통')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$this->suwonArticleId]);
+    }
+
+    /**
+     * 임베딩 실패로 BM25 만 쓸 때도, 최대 점수의 절반에 못 미치는 약한 매칭(검색어 일부만 걸림)은 뺀다.
+     */
+    public function test_bm25_fallback_drops_weak_text_matches(): void
+    {
+        Http::fake(['*/embeddings' => Http::response('error', 500)]);
+
+        $this->getJson('/api/v1/regions/41/articles?q='.urlencode('조합 설립 인가 버스'))
+            ->assertOk()
+            ->assertJsonPath('meta.search_type', 'bm25')
+            ->assertJsonPath('data.*.id', [$this->maetanArticleId]);
+    }
+
+    /**
      * 전국 최신 기사는 발행일 역순이고 limit 만큼 준다.
      */
     public function test_lists_latest_articles(): void

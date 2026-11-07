@@ -45,6 +45,7 @@ API 형식은 `contracts/API.md`, DB 는 `contracts/schema.sql` 이 진실이다
   - 앞에 프록시·CDN(Cloudflare 등)을 두면 `$request->ip()` 가 프록시 IP 가 되므로 `trustProxies` 를 설정해야 한다.
 - JSON 응답의 한글은 `UnescapedUnicodeJson` 미들웨어로 `\uXXXX` 없이 나간다.
 - 검색: 쿼리 임베딩(`QueryEmbeddingService`, rag 와 같은 Qwen3 query instruction, 1일 캐시)이 되면 `search_chunks()`, 실패하면 BM25 만 쓰고 `meta.search_type` 으로 알린다.
+  - 관련도 하한은 `config/newsmap.php` 의 `search`(env `SEARCH_MIN_VECTOR_SIMILARITY`·`SEARCH_MIN_HYBRID_SIMILARITY`·`SEARCH_MIN_TEXT_SCORE_RATIO`)다. 유사도로 받아 `search_chunks()` 에 거리(1 − 유사도)로 넘긴다. env 를 빈 값으로 두면 0 이 되어 하한이 꺼지니, 바꿀 때만 값을 넣는다.
 - 캐시는 `cache.serializable_classes=false` 라 객체를 되살리지 못한다. 캐시에는 배열·스칼라만 넣는다.
 - Octane worker 라 요청 상태를 static·singleton 에 두지 않는다.
 
