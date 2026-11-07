@@ -129,7 +129,7 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
 | `src/features/map/kakao/loadKakaoSdk.ts` | SDK 1회 로드(9초 타임아웃) |
 | `src/features/map/geo.ts` | TopoJSON 로드·캐시, 바다·섬, 코드 → 단위·경로 |
 | `src/features/map/colors.ts` | 지도 색, 기사 수 → 색 (API `meta.legend` 구간) |
-| `src/features/articles/RegionArticlesPanel.tsx`, `useRegionArticles.ts` | 목록 패널, 검색(300ms 디바운스)·페이지, 바다·섬 안내 |
+| `src/features/articles/RegionArticlesPanel.tsx`, `useRegionArticles.ts` | 목록 패널, 검색(600ms 디바운스, 응답 대기 중 "searching..." 표시)·페이지, 바다·섬 안내 |
 | `src/features/stats/useStats.ts` | 요약·티커·지역 통계(단계별 1회 호출 후 캐시) |
 | `src/lib/api/newsApi.ts`, `types.ts`, `httpClient.ts` | API 함수·타입·fetch 래퍼 |
 | `scripts/build-geo.mjs` | 경계 TopoJSON 생성 |

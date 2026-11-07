@@ -296,7 +296,7 @@ v1 응답에는 `favorite_region_count` 가 없다(관심 지역 미구현).
 | `GET /regions/{code}/articles` 중 `q` 가 있는 요청 | 30 (위 120 과 별도로 추가) | IP |
 | `POST /auth/login` | 5 | 이메일 + IP |
 
-값은 be `config/newsmap.php` 의 `rate_limits`. 프론트는 검색 입력에 디바운스(300ms)를 유지한다.
+값은 be `config/newsmap.php` 의 `rate_limits`. 프론트는 검색 입력에 디바운스(600ms)를 유지한다.
 
 ## 프론트 화면 ↔ API 매핑
 - 페이지 로드: `GET /stats/summary`, `GET /stats/regions?level=sido`, `GET /articles/latest?limit=16`, `GET /me`(토큰 있을 때)

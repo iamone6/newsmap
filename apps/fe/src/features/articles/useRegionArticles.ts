@@ -6,8 +6,11 @@ import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 /** 한 페이지에 보여 줄 기사 수 */
 export const ARTICLES_PER_PAGE = 5;
-/** 검색어 입력이 이 시간(ms) 동안 멈추면 검색한다 */
-const SEARCH_DELAY_MS = 300;
+/**
+ * 검색어 입력이 이 시간(ms) 동안 멈추면 검색한다(디바운스). 입력하는 동안에는 API 를 부르지 않는다.
+ * 300ms 는 한글 자모를 조합하는 사이에도 지나가 단어를 다 치기 전에 검색이 나가서 600ms 로 늘렸다(2026-11-07).
+ */
+const SEARCH_DELAY_MS = 600;
 
 /**
  * 에러를 화면에 보여 줄 문구로 바꾼다. 요청 제한(429)은 be 문구가 영어라 우리말로 바꾼다.
@@ -42,6 +45,7 @@ export function useRegionArticles(regionCode: string) {
 
   const query = useDebouncedValue(searchText.trim(), SEARCH_DELAY_MS);
   const requestKey = [regionCode, sort, query, page].join("|");
+  const isLoading = result?.requestKey !== requestKey;
 
   useEffect(() => {
     // 응답이 늦게 와서 그 사이 조건이 바뀌었다면 그 응답은 버린다
@@ -64,7 +68,12 @@ export function useRegionArticles(regionCode: string) {
     response: result?.response ?? null,
     errorMessage: result?.errorMessage ?? null,
     /** 지금 조건의 응답이 아직 오지 않았으면 true */
-    isLoading: result?.requestKey !== requestKey,
+    isLoading,
+    /**
+     * 검색 요청을 보냈고 응답을 아직 받지 못했으면 true.
+     * 입력이 멈추기를 기다리는 동안(디바운스)은 요청 전이라 false 다.
+     */
+    isSearching: query !== "" && isLoading,
     sort,
     searchText,
     page,

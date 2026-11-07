@@ -126,20 +126,43 @@ function PanelContent({ region, parentNames, onClose }: RegionArticlesPanelProps
         <span>{meta ? `${meta.current_page} / ${meta.last_page}` : ""}</span>
       </div>
 
-      <div ref={listRef} className={`flex-1 overflow-auto py-2 transition-opacity ${articles.isLoading ? "opacity-50" : ""}`}>
-        {articles.errorMessage ? (
-          <EmptyMessage text={`목록을 불러오지 못했습니다. (${articles.errorMessage})`} />
-        ) : items.length > 0 ? (
-          items.map((article) => <ArticleItem key={article.id} article={article} />)
-        ) : (
-          !articles.isLoading && <EmptyMessage text="조건에 맞는 기사가 없습니다." />
-        )}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* 하이브리드 검색은 응답까지 1~2초 걸려, 멈춘 것처럼 보이지 않게 목록 위에 띄운다 */}
+        {articles.isSearching && <SearchingIndicator />}
+        <div ref={listRef} className={`flex-1 overflow-auto py-2 transition-opacity ${articles.isLoading ? "opacity-50" : ""}`}>
+          {articles.errorMessage ? (
+            <EmptyMessage text={`목록을 불러오지 못했습니다. (${articles.errorMessage})`} />
+          ) : items.length > 0 ? (
+            items.map((article) => <ArticleItem key={article.id} article={article} />)
+          ) : (
+            !articles.isLoading && !articles.isSearching && <EmptyMessage text="조건에 맞는 기사가 없습니다." />
+          )}
+        </div>
       </div>
 
       {meta && meta.last_page > 1 && (
         <Pager currentPage={meta.current_page} lastPage={meta.last_page} onChange={goToPage} />
       )}
     </PanelFrame>
+  );
+}
+
+/**
+ * 검색 응답을 기다리는 동안 목록 위 가운데에 띄우는 "searching..." 표시와 도는 원.
+ * 화면 읽기 프로그램에도 알리도록 role="status" 를 단다.
+ * @returns 검색 중 표시
+ */
+function SearchingIndicator() {
+  return (
+    <div
+      role="status"
+      className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center"
+    >
+      <span className="flex items-center gap-2 rounded-full bg-bg px-3.5 py-1.5 text-[12px] text-ink/75 shadow-md">
+        <span aria-hidden className="size-3.5 animate-spin rounded-full border-2 border-accent/25 border-t-accent" />
+        searching...
+      </span>
+    </div>
   );
 }
 
