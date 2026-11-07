@@ -17,7 +17,7 @@ docker compose exec rag uv run python -m rag.cli --feed-key joongboo
 docker compose exec rag uv run python -m rag.cli --feed-key ALL   # feeds.yaml 전체 피드 순회
 ```
 
-운영 서버에서는 호스트 cron 이 `deploy/run-rag.sh`(매일 00:00 하루 1회 `--feed-key ALL`, `flock` 으로 중복 실행 방지)를 부른다(`deploy/crontab`). 컨테이너 안에 자체 스케줄러는 넣지 않는다.
+운영 서버에서는 호스트 cron 이 `deploy/run-rag.sh`(매일 00:00 하루 1회 `--feed-key ALL`, `flock` 으로 중복 실행 방지, 컨테이너 안 `timeout` 으로 최대 3시간)를 부른다(`deploy/crontab`). DeepInfra(LLM·임베딩) 호출은 `rag/retry.py` 의 `API_TIMEOUT_SECONDS`(120초)를 반드시 넘긴다. langchain_openai 기본값(`timeout=None`)은 무한 대기라 2026-11-07 prod 실행이 12시간 넘게 멈췄다. 컨테이너 안에 자체 스케줄러는 넣지 않는다.
 
 ## 로그 파일
 

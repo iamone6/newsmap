@@ -18,6 +18,12 @@ log = logging.getLogger(__name__)
 RETRY_DELAY_SECONDS = 1
 MAX_RETRIES = 3
 
+# DeepInfra(OpenAI 호환) 호출 한 번의 응답 대기 상한(초).
+# langchain_openai 는 기본으로 timeout=None 을 openai SDK 에 그대로 넘기고, SDK 는 이를 "무한 대기"로
+# 받는다. 그래서 연결이 응답 없이 멈추면 피드 스레드가 영원히 기다리고 cron 의 flock 이 풀리지 않았다
+# (2026-11-07 prod, 00:15 부터 3개 피드 정지). 반드시 ChatOpenAI/OpenAIEmbeddings 에 넘긴다.
+API_TIMEOUT_SECONDS = 120
+
 
 def call_with_retry(func: Callable[[], T], *, description: str) -> T:
     """func() 를 호출하다 예외가 나면 RETRY_DELAY_SECONDS 초 후 재시도, 최대 MAX_RETRIES 번까지

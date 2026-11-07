@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, field_validator
 
 from rag import usage
-from rag.retry import call_with_retry
+from rag.retry import API_TIMEOUT_SECONDS, call_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -140,7 +140,9 @@ def judge_article(
     api_key: str,
     model: str,
 ) -> ArticleJudgment:
-    llm = ChatOpenAI(base_url=base_url, api_key=api_key, model=model, temperature=0)
+    llm = ChatOpenAI(
+        base_url=base_url, api_key=api_key, model=model, temperature=0, timeout=API_TIMEOUT_SECONDS
+    )
     structured = llm.with_structured_output(ArticleJudgment, method="function_calling", include_raw=True)
     prompt = _PROMPT.format(title=title, body=body, images=_format_images(image_captions))
     # 호출/파싱 둘 다 재시도 대상에 포함한다 - 재시도마다 실제 과금되는 호출이라 매 시도마다

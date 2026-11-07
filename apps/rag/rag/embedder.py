@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from langchain_openai import OpenAIEmbeddings
 
-from rag.retry import call_with_retry
+from rag.retry import API_TIMEOUT_SECONDS, call_with_retry
 
 # Qwen3-Embedding 공식 권장 질의용 instruction.
 QUERY_INSTRUCTION = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
@@ -23,6 +23,7 @@ def _client(*, base_url: str, api_key: str, model: str) -> OpenAIEmbeddings:
         model=model,
         # tiktoken 기반 길이 사전검사는 Qwen 토크나이저를 모르므로 끈다(직접 확인함).
         check_embedding_ctx_length=False,
+        timeout=API_TIMEOUT_SECONDS,
     )
 
 

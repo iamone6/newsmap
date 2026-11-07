@@ -219,7 +219,7 @@ rm newsmap.dump
 crontab /srv/newsmap/deploy/crontab   # deploy 사용자로
 ```
 
-- 매일 00:00 `deploy/run-rag.sh`(`--feed-key ALL`, 하루 1회). 이전 실행이 안 끝났으면 `flock` 으로 건너뜁니다.
+- 매일 00:00 `deploy/run-rag.sh`(`--feed-key ALL`, 하루 1회). 이전 실행이 안 끝났으면 `flock` 으로 건너뜁니다. 한 번 실행은 최대 3시간이며 넘기면 강제로 끝냅니다(lock 이 계속 잡히지 않게).
 - 매일 04:10 `deploy/purge-old-articles.sh`(보존 기간 1년 지난 기사 삭제).
 - 출력은 `deploy/cron.log`, rag 자체 로그는 `apps/rag/logs`.
 
