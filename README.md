@@ -1,6 +1,8 @@
-# newsmap
+# newsmap (https://newsmap.duckdns.org)
 
-지역 뉴스 RSS를 모아서 시도/ 시군구/ 읍면동 단위로 하이브리드 검색(BM25 + 벡터)하는 RAG 프로젝트입니다.
+지역 뉴스 RSS를 모아서 본문에 따라 시도/ 시군구/ 읍면동 단위로 분류하고 하이브리드 검색(BM25 + 벡터)하는 monorepo RAG 프로젝트입니다.
+
+github action 을 통해 CI/CD 로 클라우드에 배포합니다.
 
 ## 디렉터리 구성
 
@@ -226,13 +228,32 @@ rm newsmap.dump
 
 ### 주기 작업 (cron)
 
+> **현재 상태: 중단 (2026-11-14~)**. `deploy/crontab` 의 3개 작업이 모두 주석 처리되어 있고, 서버 crontab 도 같은 내용으로 적용해 두었다. RSS 수집·보존 삭제·BM25 재색인이 모두 멈춰 있다.
+
 ```bash
 crontab /srv/newsmap/deploy/crontab   # deploy 사용자로
 ```
 
 - 매일 00:00 `deploy/run-rag.sh`(`--feed-key ALL`, 하루 1회). 이전 실행이 안 끝났으면 `flock` 으로 건너뜁니다. 한 번 실행은 최대 3시간이며 넘기면 강제로 끝냅니다(lock 이 계속 잡히지 않게).
 - 매일 04:10 `deploy/purge-old-articles.sh`(보존 기간 1년 지난 기사 삭제).
+- 매일 04:30 `deploy/reindex-bm25.sh`(BM25 인덱스 재색인. 04:10 삭제 뒤에 돈다).
 - 출력은 `deploy/cron.log`, rag 자체 로그는 `apps/rag/logs`.
+
+#### 재개 방법
+
+1. 레포에서 `deploy/crontab` 의 주석(`#`)을 풀고, 중단 상태 문구도 지운다. 커밋·푸시한다.
+2. 서버의 `/srv/newsmap/deploy/crontab` 이 위 내용과 같은지 확인한다. 배포 파이프라인은 이 파일을 갱신하지 않으므로 서버에 직접 반영해야 한다.
+3. **deploy 사용자로** 적용한다(root 로 하면 root 의 crontab 에 등록된다).
+   ```bash
+   sudo -u deploy crontab /srv/newsmap/deploy/crontab
+   sudo -u deploy crontab -l    # 확인: 주석 없는 줄 3개가 보여야 한다
+   ```
+4. 필요하면 수동으로 한 번 돌려 확인한다: `/srv/newsmap/deploy/run-rag.sh` (실행 전 `pgrep -af 'rag.cli|run-rag'` 로 이전 실행이 없는지 본다).
+
+#### 중단 방법
+
+- `deploy/crontab` 의 세 줄을 주석 처리하고 위 3번처럼 적용한다.
+- 다른 계정(root 등)에 같은 작업을 따로 등록했다면 그 계정에서도 제거한다. `sudo grep -rln 'newsmap' /var/spool/cron/ /etc/cron.d/ /etc/crontab` 으로 찾을 수 있다.
 
 ### 롤백
 
