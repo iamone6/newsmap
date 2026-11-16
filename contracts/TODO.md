@@ -4,13 +4,18 @@
 
 - [ ] Vultr 첫 배포 (절차는 README "운영(prod) 배포"). 도메인 `newsmap.duckdns.org`, 배포 사용자 `deploy`
     - [x] 1단계 서버 준비 (2026-11-04): Ubuntu 24.04 LTS·Asia/Seoul, Docker·compose, deploy 사용자(docker 그룹)·`/srv/newsmap`·`/data/postgres`, 배포 전용 SSH 키(PC `~/.ssh/newsmap_deploy`), 비밀번호 SSH 로그인 차단, ufw 22·80·443/tcp, deploy 의 GHCR 로그인(read:packages PAT), DuckDNS A 레코드
-    - [ ] (선택) `sudo ufw allow 443/udp` (HTTP/3)
     - [x] 2단계 GitHub 등록 (2026-11-04): Secrets `VULTR_HOST`(도메인)·`VULTR_USER`·`VULTR_SSH_KEY`·`VULTR_SSH_FINGERPRINT`(ED25519. 첫 배포에서 mismatch 나면 ECDSA `SHA256:z8Bb9fb3BE8Y5qheleknaNVNUVtWVD9rIleQ7gVgzu8` 로)·`FE_KAKAO_MAP_JS_KEY`, Variable `PROD_DOMAIN`
     - [x] 3단계 서버에 prod `.env` 3개 작성 (2026-11-04): 로컬 값 기반, 새 `POSTGRES_PASSWORD`·`APP_KEY`, `chmod 600`
     - [x] 4단계 카카오 Developers 에 `https://newsmap.duckdns.org` 등록 (2026-11-04)
     - [x] 5단계 첫 배포 `sha-9871b5a` (2026-11-04): 지문은 ECDSA 로 교체, 로컬 DB 복원(기사 14,278·청크 34,241·행정동 9,612, users 제외), API·하이브리드 검색 응답 확인
     - [x] 서버 crontab 등록 (2026-11-04): rag 매일 00:00 하루 1회, 보존 기간 삭제 04:10
     - [x] 첫 cron 실행 확인 (2026-11-05 00:00~00:07): 34개 피드, 신규 247건, 실패 1, 예상 비용 $0.042
+- [ ] prod 앞단 Caddy(vultr_proxy) 전환. 저장소 쪽 변경(be 호스트 포트 해제·`edge` 네트워크 별칭 `newsmap-be`·`trustProxies`·Caddyfile `trusted_proxies`·문서)은 끝났고 로컬은 vultr_proxy 로 동작 중이다. master push 가 곧 배포라 아래 서버 준비를 먼저 한다
+    - [ ] 서버에서 `docker network create edge`. 없으면 `deploy.sh` 의 `up -d` 가 실패한다
+    - [ ] 서버 `apps/be/.env`: `SERVER_NAME=:80` (도메인으로 두면 be 가 http→https 리다이렉트해 앞단과 무한 리다이렉트가 된다). `APP_URL=https://newsmap.duckdns.org` 는 유지
+    - [ ] vultr_proxy 설정: `newsmap.duckdns.org { reverse_proxy newsmap-be:80 }`. 와일드카드 대신 실제 도메인을 적어야 인증서가 발급된다
+    - [ ] 전환: 위 준비 후 push(배포)로 be 가 80/443 을 놓으면 바로 vultr_proxy 를 띄운다 (짧은 중단). `deploy.yml` 의 `https://PROD_DOMAIN/up` 확인은 그대로 동작
+    - [ ] (선택) HTTP/3: vultr_proxy 에서 443/udp 를 열고 `sudo ufw allow 443/udp`
 - [ ] 조회수: `articles.view_count`(또는 별도 집계 테이블) 추가 → API `view_count`, `sort=popular` 활성화 → fe 의 "인기순" 옵션 숨김 해제(`RegionArticlesPanel.tsx`)와 `ArticleListItem.view_count` 복원
 - [ ] 지역 중심 좌표: `regions` 에 좌표 추가 여부 결정 → `/regions` 의 `center`
 - [ ] 바다·섬(`SEA_*`, `ISL_*`): rag 분류 규칙과 저장 방식 결정 → `/stats/regions`, `/regions/{code}/articles`

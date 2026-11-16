@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // 요청은 항상 앞단 Caddy(vultr_proxy)를 거쳐 온다. X-Forwarded-For/Proto 를 믿어야
+        // 요청 제한이 실제 사용자 IP 별로 걸리고 https 판정이 맞다. be 는 호스트에 노출되지 않으므로 '*' 로 둔다.
+        $middleware->trustProxies(at: '*');
+
         // JSON 응답의 한글을 \uXXXX 없이 UTF-8 그대로 내보낸다 (이유는 미들웨어 주석)
         $middleware->append(UnescapedUnicodeJson::class);
 

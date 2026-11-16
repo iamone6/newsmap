@@ -42,7 +42,7 @@ API 형식은 `contracts/API.md`, DB 는 `contracts/schema.sql` 이 진실이다
 - 서비스 설정은 `config/newsmap.php`(쿼리 임베딩, `exclude_wire`, 통계 캐시 시간, 요청 제한 `rate_limits`).
 - 요청 제한: `AppServiceProvider` 에 limiter `api`(모든 API, `bootstrap/app.php` 의 `throttleApi()`), `search`(q 가 있을 때만), `login` 을 정의한다. 한도·근거는 `config/newsmap.php` 주석과 `contracts/API.md` "요청 제한".
   - limiter 카운터는 기본 캐시(`file`)에 쌓인다. 서버를 여러 대로 늘리면 Redis 같은 공유 캐시로 바꿔야 한다.
-  - 앞에 프록시·CDN(Cloudflare 등)을 두면 `$request->ip()` 가 프록시 IP 가 되므로 `trustProxies` 를 설정해야 한다.
+  - 요청은 앞단 vultr_proxy 를 거쳐 오므로 `bootstrap/app.php` 의 `trustProxies(at: '*')` 로 X-Forwarded-For 의 사용자 IP 를 쓴다(`RateLimitTest` 가 확인). be 는 호스트 포트를 열지 않아 `*` 로 둔다. Caddyfile 의 `trusted_proxies private_ranges` 는 fe 로 넘길 때와 로그의 IP 용이다.
 - JSON 응답의 한글은 `UnescapedUnicodeJson` 미들웨어로 `\uXXXX` 없이 나간다.
 - 검색: 쿼리 임베딩(`QueryEmbeddingService`, rag 와 같은 Qwen3 query instruction, 1일 캐시)이 되면 `search_chunks()`, 실패하면 BM25 만 쓰고 `meta.search_type` 으로 알린다.
   - 관련도 하한은 `config/newsmap.php` 의 `search`(env `SEARCH_MIN_VECTOR_SIMILARITY`·`SEARCH_MIN_HYBRID_SIMILARITY`·`SEARCH_MIN_TEXT_SCORE_RATIO`)다. 유사도로 받아 `search_chunks()` 에 거리(1 − 유사도)로 넘긴다. env 를 빈 값으로 두면 0 이 되어 하한이 꺼지니, 바꿀 때만 값을 넣는다.
@@ -62,12 +62,12 @@ API 형식은 `contracts/API.md`, DB 는 `contracts/schema.sql` 이 진실이다
 
 ## 요청 흐름 (be 가 서비스 앞단)
 ```
-브라우저 → be(FrankenPHP/Caddy :80, 로컬 :4000)
+브라우저 → 앞단 Caddy(vultr_proxy, prod 443 / 로컬 :4000) → be(FrankenPHP/Caddy :80, edge 별칭 newsmap-be)
             ├─ /api/*, /up, /sanctum/*  → Laravel (Octane worker)
             └─ 그 외 (지도 화면, /geo/*) → fe:3000 (Next.js)
 ```
 - 설정은 `Caddyfile`. fe 와 같은 도메인이라 CORS 설정이 없다. fe 는 `NEXT_PUBLIC_API_BASE_URL=/api/v1` 상대 경로로 호출한다.
-- `SERVER_NAME=:80` 이면 HTTP 만, 도메인을 넣으면 Caddy 가 인증서를 자동 발급한다(인증서는 `caddy_data` 볼륨).
+- `SERVER_NAME` 은 로컬·prod 모두 `:80` (HTTP 만). TLS·인증서는 앞단 vultr_proxy 가 맡는다. 클라이언트 IP·https 판정은 `bootstrap/app.php` 의 `trustProxies` 로 X-Forwarded-* 를 믿어서 얻는다.
 - `http://localhost` 사이트는 컨테이너 healthcheck(`/up`)용이다.
 - API 는 `/api/v1` prefix(`bootstrap/app.php` 의 `apiPrefix`). web 라우트는 두지 않는다.
 
@@ -108,8 +108,8 @@ docker compose -f docker-compose.yml build be
 | `DB_*` | `apps/db/.env` 의 `POSTGRES_*` 와 맞춘다. compose 가 `DB_HOST=db` 로 덮어쓴다 |
 | `SESSION_DRIVER` `CACHE_STORE` `QUEUE_CONNECTION` | API 무상태: `array` / `file` / `sync` |
 | `OCTANE_SERVER` | `frankenphp` |
-| `SERVER_NAME` | 로컬 `:80`, prod 는 도메인 |
-| `FE_UPSTREAM` | 기본 `fe:3000`. fe 를 호스트 dev 서버(hot reload)로 띄울 때 `host.docker.internal:4001` |
+| `SERVER_NAME` | 로컬·prod 모두 `:80` (TLS 는 vultr_proxy) |
+| `FE_UPSTREAM` | 기본 `fe:3000`. fe 를 호스트 dev 서버(hot reload)로 띄울 때 `host.docker.internal:4002` |
 | `RAG_EXCLUDE_WIRE` | `search_chunks()` 의 `p_exclude_wire` 기본값 |
 | `DEEPINFRA_*` `EMBEDDING_*` | 검색 쿼리 임베딩. `apps/rag/.env` 와 같은 모델·차원이어야 한다 |
 

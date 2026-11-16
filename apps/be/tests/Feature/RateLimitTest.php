@@ -40,6 +40,19 @@ class RateLimitTest extends TestCase
     }
 
     /**
+     * 앞단 Caddy(vultr_proxy)를 거친 요청은 X-Forwarded-For 의 실제 사용자 IP 별로 한도를 센다.
+     * trustProxies 가 없으면 모두 앞단 IP 하나로 묶여 두 번째 사용자도 429 를 받는다.
+     */
+    public function test_api_limit_counts_per_forwarded_client_ip(): void
+    {
+        config(['newsmap.rate_limits.api' => 1]);
+
+        $this->withHeaders(['X-Forwarded-For' => '203.0.113.10'])->getJson('/api/v1/regions')->assertOk();
+        $this->withHeaders(['X-Forwarded-For' => '203.0.113.10'])->getJson('/api/v1/regions')->assertTooManyRequests();
+        $this->withHeaders(['X-Forwarded-For' => '203.0.113.20'])->getJson('/api/v1/regions')->assertOk();
+    }
+
+    /**
      * 검색 한도는 검색어(q)가 있는 요청에만 걸린다.
      */
     public function test_search_limit_applies_only_with_query(): void

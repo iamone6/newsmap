@@ -19,7 +19,7 @@
 - **dockerfiles/, docker-compose.yml**
     - db·rag·fe·be 이미지와 서비스 정의. rag 컨테이너는 상시 기동(`sleep infinity`)하고 작업은 `docker compose exec`로 실행한다.
     - rag 이미지는 소스를 `COPY . .`로 굽기 때문에 코드나 `feeds.yaml`·`region_aliases.yaml`을 바꾸면 `--build`로 이미지를 다시 만들어야 반영된다.
-    - **be(FrankenPHP/Caddy)가 서비스 앞단**이다. prod 는 호스트 80/443(도메인이면 HTTPS 자동 발급), 로컬은 override 에서 `ports: !override`로 4000 만 연다. `/api/*`·`/up` 은 Laravel, 나머지는 fe 로 프록시한다(`apps/be/Caddyfile`). 같은 도메인이라 CORS 가 없다.
+    - **be(FrankenPHP/Caddy)가 프로젝트 앞단**이다. 호스트 포트는 열지 않고, 같은 서버의 앞단 Caddy(`vultr_proxy` 저장소)가 80/443·인증서(로컬은 4000)를 맡아 공유 네트워크 `edge` 의 `newsmap-be:80` 으로 넘긴다. be 는 HTTP 만 받는다(`SERVER_NAME=:80`). `docker network create edge` 와 vultr_proxy 기동이 먼저다. `/api/*`·`/up` 은 Laravel, 나머지는 fe 로 프록시한다(`apps/be/Caddyfile`). 같은 도메인이라 CORS 가 없다.
     - fe 는 호스트 포트를 열지 않고(`expose: 3000`) be 뒤에서만 접근한다. Next.js standalone 출력을 `node server.js` 로 서빙한다. `NEXT_PUBLIC_*` 는 빌드 시점에 번들로 박히므로 `apps/fe/.env` 를 compose build secret 으로 빌드 때만 넘기고, 값을 바꾸면 `--build` 가 필요하다.
     - 로컬 be 는 dev 타깃 + 소스 bind mount 라 코드 변경이 재빌드 없이 반영된다(상세는 `apps/be/CLAUDE.md`).
     - 운영(Vultr)은 `docker-compose.prod.yml` 을 겹쳐 쓴다. master push 시 `.github/workflows/deploy.yml` 이 CI(`ci.yml`) 통과 후 이미지를 GHCR(`ghcr.io/iamone6/newsmap-*:sha-xxxxxxx`)에 올리고 서버에서 `deploy/deploy.sh` 로 교체한다. 서버에는 소스 없이 compose 파일·`deploy/`·`apps/{db,rag,be}/.env` 만 둔다. rag 주기 실행과 보존 기간 삭제는 서버 crontab(`deploy/crontab`). 절차는 README "운영(prod) 배포".
@@ -63,16 +63,16 @@ docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d 
 uv run apps/db/scripts/load_regions.py apps/db/scripts/KIKcd_H.YYYYMMDD.xlsx --retire-missing --dry-run
 (cd apps/rag && uv run python -m rag.remap_regions --dry-run)
 
-# be(앞단) / fe 컨테이너 빌드 + 기동. 둘 다 http://localhost:4000 (be 가 받아 fe 로 프록시), prod :80/:443
+# be(앞단) / fe 컨테이너 빌드 + 기동. 둘 다 http://localhost:4000 (vultr_proxy → be → fe)
 docker compose up -d --build be
 docker compose up -d --build fe
 
 # be 안에서 composer / artisan (호스트에 PHP 설치 안 함)
 docker compose exec be php artisan route:list
 
-# fe 개발 서버(hot reload). be 컨테이너가 4000 을 쓰므로 4001 로 띄우고,
-# be 를 거쳐 보려면 apps/be/.env 에 FE_UPSTREAM=host.docker.internal:4001 후 be 재생성
-(cd apps/fe && npm run dev -- --port 4001)
+# fe 개발 서버(hot reload). 4000·4001 은 vultr_proxy 가 쓰므로 4002 로 띄우고,
+# be 를 거쳐 보려면 apps/be/.env 에 FE_UPSTREAM=host.docker.internal:4002 후 be 재생성
+(cd apps/fe && npm run dev -- --port 4002)
 ```
 
 - 로컬 전용 compose 설정은 `docker-compose.override.yml`(gitignore 대상)에 둔다.

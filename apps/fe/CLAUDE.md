@@ -22,14 +22,14 @@
 - Next 16 은 이전 버전과 API·규칙이 다르다. 코드를 쓰기 전에 `node_modules/next/dist/docs/`를 확인한다(`AGENTS.md`).
 
 ## 명령
-fe 는 be(FrankenPHP/Caddy) 뒤에 있다. 브라우저는 be(로컬 http://localhost:4000, prod :80/:443)로 접속하고, be 가 `/api/*` 외의 요청을 fe 로 넘긴다.
-fe 컨테이너는 호스트 포트를 열지 않는다(`expose: 3000`). 이 PC는 Windows가 3000번대 포트를 예약해 둬서 dev 서버는 4001 을 쓴다.
+fe 는 be(FrankenPHP/Caddy) 뒤에 있다. 브라우저는 앞단 Caddy(vultr_proxy, 로컬 http://localhost:4000, prod 443)를 거쳐 be 로 들어오고, be 가 `/api/*` 외의 요청을 fe 로 넘긴다.
+fe 컨테이너는 호스트 포트를 열지 않는다(`expose: 3000`). 이 PC는 Windows가 3000번대 포트를 예약해 둬서 dev 서버는 4002 를 쓴다 (4000·4001 은 vultr_proxy 앞단이 쓴다).
 
 ```bash
 # 로컬 테스트 (hot reload). apps/fe 에서 실행
-npm run dev -- --port 4001
-#  - http://localhost:4001 로 바로 보면 mock 모드만 동작한다 (/api/v1 상대 경로가 Next 로 가므로)
-#  - 실제 be API 와 함께 보려면 apps/be/.env 에 FE_UPSTREAM=host.docker.internal:4001 을 넣고
+npm run dev -- --port 4002
+#  - http://localhost:4002 로 바로 보면 mock 모드만 동작한다 (/api/v1 상대 경로가 Next 로 가므로)
+#  - 실제 be API 와 함께 보려면 apps/be/.env 에 FE_UPSTREAM=host.docker.internal:4002 를 넣고
 #    be 를 재생성(docker compose up -d --force-recreate be)한 뒤 http://localhost:4000 으로 접속한다. 끝나면 fe:3000 으로 되돌린다
 
 # 빌드 (타입 검사 포함). apps/fe 에서 실행
@@ -38,7 +38,7 @@ npm run lint
 npm run build:geo            # public/geo/*.topo.json 재생성 (원본은 .cache/ 에 내려받음)
 
 # 빌드 결과 로컬 실행. standalone 경고가 뜨지만 동작한다 (컨테이너와 같은 방식은 node .next/standalone/server.js)
-npm run start -- --port 4001
+npm run start -- --port 4002
 
 # 도커 빌드 + 실행 (레포 루트에서). be 를 거쳐 http://localhost:4000 으로 본다
 docker compose build fe
@@ -117,7 +117,7 @@ be v1 API(`contracts/API.md`)에 연결했다. 실제 be 로 지도 색칠·요�
   - 바다·섬은 통계에 없고 목록은 404 다.
   - 검색하면 `search_type` 을 준다.
   - 썸네일은 v1 처럼 크기를 null 로 주고, 원본 비율은 여러 가지로 섞어 잘림을 확인한다.
-- **실제 API 로 확인하는 법**: `.env` 를 고치지 않고 `NEXT_PUBLIC_USE_MOCK_API=false npm run dev -- --port 4001` 로 띄운다. 나머지(`FE_UPSTREAM`)는 위 "명령" 절차와 같다.
+- **실제 API 로 확인하는 법**: `.env` 를 고치지 않고 `NEXT_PUBLIC_USE_MOCK_API=false npm run dev -- --port 4002` 로 띄운다. 나머지(`FE_UPSTREAM`)는 위 "명령" 절차와 같다.
 
 ### 주요 파일
 | 파일 | 역할 |

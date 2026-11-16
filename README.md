@@ -190,7 +190,9 @@ master 에 push 하면 GitHub Actions 가 배포합니다(`.github/workflows/dep
 sudo timedatectl set-timezone Asia/Seoul
 sudo adduser --disabled-password deploy && sudo usermod -aG docker deploy   # SSH 공개키를 ~deploy/.ssh/authorized_keys 에 등록
 sudo mkdir -p /srv/newsmap/apps/{db,rag,be} /data/postgres && sudo chown -R deploy: /srv/newsmap
-# 방화벽: 22, 80/tcp, 443/tcp, 443/udp(HTTP/3) 만 연다. DNS A 레코드가 서버를 가리켜야 Caddy 가 인증서를 발급한다.
+# 방화벽: 22, 80/tcp, 443/tcp, 443/udp(HTTP/3) 만 연다. 80/443 과 인증서는 앞단 Caddy(vultr_proxy 저장소)가 맡는다.
+# 공유 네트워크를 먼저 만들고 vultr_proxy 를 띄운다 (vultr_proxy README "운영")
+docker network create edge
 
 # deploy 사용자로: GHCR 패키지가 private 이면 read:packages 권한 PAT 로 한 번 로그인해 둔다 (~/.docker/config.json 에 저장됨)
 docker login ghcr.io -u iamone6
@@ -199,7 +201,7 @@ docker login ghcr.io -u iamone6
 prod `.env` 는 `.env.example` 을 참고해 서버에서 직접 만들고 `chmod 600` 으로 둡니다. 로컬 값과 다르게 둘 것:
 
 - `apps/db/.env`: 새 `POSTGRES_PASSWORD`
-- `apps/be/.env`: `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<도메인>`, `SERVER_NAME=<도메인>`, `FE_UPSTREAM=fe:3000`, `LOG_CHANNEL=stderr`, `LOG_LEVEL=warning`, 새 `APP_KEY`, `DB_PASSWORD`(db 와 같게)
+- `apps/be/.env`: `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<도메인>`, `SERVER_NAME=:80`(TLS 는 vultr_proxy), `FE_UPSTREAM=fe:3000`, `LOG_CHANNEL=stderr`, `LOG_LEVEL=warning`, 새 `APP_KEY`, `DB_PASSWORD`(db 와 같게)
 - `apps/rag/.env`: `DB_PASSWORD`, `DEEPINFRA_API_KEY`
 
 카카오 Developers 의 Web 플랫폼 도메인에 `https://<도메인>` 을 추가합니다. 그 다음 deploy.yml 을 Actions 에서 수동 실행(workflow_dispatch)하거나 master 에 push 합니다.

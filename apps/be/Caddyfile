@@ -1,12 +1,19 @@
-# FrankenPHP(Caddy) 설정. be 컨테이너가 서비스의 앞단이다.
+# FrankenPHP(Caddy) 설정. be 컨테이너가 이 프로젝트의 앞단이다. 그 앞에 같은 서버 공용 Caddy(vultr_proxy 저장소)가 있어 TLS 를 맡는다.
 # - /api/*, /up, /sanctum/* 는 Laravel(Octane worker)이 처리한다.
 # - 그 외 요청(지도 화면, 정적 파일)은 fe 컨테이너(Next.js)로 프록시한다. 같은 도메인이라 CORS 가 필요 없다.
 # 원본은 vendor/laravel/octane/src/Commands/stubs/Caddyfile 이고, {$CADDY_*}·{$APP_*} 값은 octane:frankenphp 가 채운다.
 # SERVER_NAME, FE_UPSTREAM 은 apps/be/.env 에서 온다.
-#   SERVER_NAME=:80          → HTTP 만 (로컬)
-#   SERVER_NAME=example.com  → Caddy 가 인증서를 자동 발급해 HTTPS 로 서비스 (prod)
+#   SERVER_NAME=:80          → HTTP 만. 로컬·prod 모두 이 값 (vultr_proxy 가 edge 네트워크에서 newsmap-be:80 으로 넘긴다)
+#   SERVER_NAME=example.com  → 이 Caddy 가 직접 인증서를 발급한다. vultr_proxy 없이 단독으로 80/443 을 열 때만 쓴다
 {
 	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+
+	# 앞단 Caddy(vultr_proxy)는 docker 사설 네트워크(edge)에서 들어온다. 사설 대역을 믿어야
+	# 앞단이 붙인 X-Forwarded-For/Proto 를 버리지 않고 fe 로 넘기고, 접근 로그에도 실제 사용자 IP 를 남긴다.
+	servers {
+		trusted_proxies static private_ranges
+		client_ip_headers X-Forwarded-For
+	}
 
 	frankenphp {
 		worker {
